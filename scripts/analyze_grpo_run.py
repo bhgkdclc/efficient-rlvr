@@ -36,6 +36,19 @@ ROLLOUT_KEYS = {
         "rollout/cumulative_generated_response_tokens"
     ),
     "cumulative_rollout_tokens": "rollout/cumulative_rollout_tokens",
+    "sampling_strategy": "sampling/strategy",
+    "batch_complete": "sampling/batch_complete",
+    "attempted_groups": "sampling/attempted_groups",
+    "accepted_groups": "sampling/accepted_groups",
+    "discarded_zero_variance_groups": (
+        "sampling/discarded_zero_variance_groups"
+    ),
+    "resample_rounds": "sampling/resample_rounds",
+    "accepted_total_rollout_tokens": "sampling/accepted_total_rollout_tokens",
+    "discarded_total_rollout_tokens": "sampling/discarded_total_rollout_tokens",
+    "cumulative_discarded_total_rollout_tokens": (
+        "sampling/cumulative_discarded_total_rollout_tokens"
+    ),
 }
 
 
@@ -60,25 +73,36 @@ def dataframe_for_event(records: list[dict], event: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def mean_dict(frame: pd.DataFrame, columns: list[str]) -> dict[str, float]:
-    return {column: float(frame[column].mean()) for column in columns}
+def mean_dict(
+    frame: pd.DataFrame,
+    columns: list[str],
+    weight_column: str | None = None,
+) -> dict[str, float]:
+    if weight_column is None or weight_column not in frame:
+        return {column: float(frame[column].mean()) for column in columns}
+    weights = frame[weight_column].astype(float)
+    return {
+        column: float(np.average(frame[column].astype(float), weights=weights))
+        for column in columns
+    }
 
 
 def add_rollout_token_axis(
     evaluations: pd.DataFrame, rollouts: pd.DataFrame
 ) -> pd.DataFrame:
     evaluations = evaluations.copy()
-    steps = rollouts["grpo_step"].astype(int).to_numpy()
+    rollout_timestamps = rollouts["timestamp"].to_numpy()
     tokens = rollouts["cumulative_rollout_tokens"].astype(int).to_numpy()
 
-    def tokens_at_step(model_step: int) -> int:
-        if model_step <= 0:
-            return 0
-        eligible = np.flatnonzero(steps <= model_step)
+    def tokens_at_evaluation(timestamp: float) -> int:
+        # Timestamp alignment includes a final incomplete dynamic collection,
+        # whose rollout tokens were spent even though the model was not updated.
+        eligible = np.flatnonzero(rollout_timestamps <= timestamp)
         return int(tokens[eligible[-1]]) if len(eligible) else 0
 
     evaluations["cumulative_rollout_tokens"] = [
-        tokens_at_step(int(step)) for step in evaluations["model_step"]
+        tokens_at_evaluation(float(timestamp))
+        for timestamp in evaluations["timestamp"]
     ]
     return evaluations
 
@@ -221,10 +245,49 @@ def summarize(
     rollout_batch_size = int(config.get("rollout_batch_size", 0))
     group_size = int(config.get("group_size", 0))
     groups_per_step = rollout_batch_size // group_size
-    total_groups = len(rollouts) * groups_per_step
-    zero_groups = int(
-        round((rollouts["zero_variance_group_ratio"] * groups_per_step).sum())
+    has_sampling_counts = (
+        "attempted_groups" in rollouts
+        and rollouts["attempted_groups"].notna().all()
     )
+    total_groups = (
+        int(rollouts["attempted_groups"].sum())
+        if has_sampling_counts
+        else len(rollouts) * groups_per_step
+    )
+    group_weights = (
+        rollouts["attempted_groups"]
+        if has_sampling_counts
+        else pd.Series(groups_per_step, index=rollouts.index)
+    )
+    zero_groups = int(
+        round((rollouts["zero_variance_group_ratio"] * group_weights).sum())
+    )
+    accepted_groups = (
+        int(rollouts["accepted_groups"].sum())
+        if has_sampling_counts
+        else total_groups
+    )
+    discarded_groups = (
+        int(rollouts["discarded_zero_variance_groups"].sum())
+        if has_sampling_counts
+        else 0
+    )
+    if has_sampling_counts and "batch_complete" in rollouts:
+        complete_mask = rollouts["batch_complete"].astype(bool)
+        optimized_groups = int(
+            rollouts.loc[complete_mask, "accepted_groups"].sum()
+        )
+        optimized_effective_groups = int(
+            round(
+                (
+                    rollouts.loc[complete_mask, "effective_group_ratio"]
+                    * rollouts.loc[complete_mask, "attempted_groups"]
+                ).sum()
+            )
+        )
+    else:
+        optimized_groups = total_groups
+        optimized_effective_groups = total_groups - zero_groups
 
     aggregate_columns = [
         "zero_variance_group_ratio",
@@ -249,7 +312,12 @@ def summarize(
         "all_steps": rollouts,
     }
     window_summary = {
-        name: mean_dict(frame, aggregate_columns) for name, frame in windows.items()
+        name: mean_dict(
+            frame,
+            aggregate_columns,
+            "attempted_groups" if has_sampling_counts else None,
+        )
+        for name, frame in windows.items()
     }
     window_summary["first_20_steps"]["policy_entropy"] = float(
         optimizer.head(20)["train/policy_entropy"].mean()
@@ -289,6 +357,11 @@ def summarize(
             ).sum()
         )
     )
+    exact_discarded_tokens = (
+        int(rollouts["discarded_total_rollout_tokens"].sum())
+        if has_sampling_counts
+        else None
+    )
     zero_trend_correlation = float(
         np.corrcoef(
             rollouts["grpo_step"], rollouts["zero_variance_group_ratio"]
@@ -304,7 +377,7 @@ def summarize(
             "sampling_strategy": config.get("sampling_strategy"),
             "group_size": group_size,
             "rollout_batch_size": rollout_batch_size,
-            "completed_grpo_steps": int(len(rollouts)),
+            "completed_grpo_steps": int(optimizer["grpo_step"].nunique()),
             "elapsed_train_seconds": float(optimizer.iloc[-1]["train/elapsed_time"]),
         },
         "rollout_cost": {
@@ -316,12 +389,32 @@ def summarize(
             "estimated_zero_variance_token_ratio": (
                 estimated_ineffective_tokens / total_rollout_tokens
             ),
+            "exact_discarded_rollout_tokens": exact_discarded_tokens,
+            "exact_discarded_rollout_token_ratio": (
+                exact_discarded_tokens / total_rollout_tokens
+                if exact_discarded_tokens is not None
+                else None
+            ),
         },
         "groups": {
             "total_groups": total_groups,
+            "attempted_groups": total_groups,
             "zero_variance_groups": zero_groups,
             "effective_groups": total_groups - zero_groups,
             "zero_variance_group_ratio": zero_groups / total_groups,
+            "accepted_groups": accepted_groups,
+            "discarded_groups": discarded_groups,
+            "optimized_groups": optimized_groups,
+            "optimized_effective_groups": optimized_effective_groups,
+            "optimizer_batch_effective_group_ratio": (
+                optimized_effective_groups / optimized_groups
+            ),
+            "effective_groups_per_million_rollout_tokens": (
+                (total_groups - zero_groups) / (total_rollout_tokens / 1e6)
+            ),
+            "optimized_effective_groups_per_million_rollout_tokens": (
+                optimized_effective_groups / (total_rollout_tokens / 1e6)
+            ),
         },
         "comparable_evaluation": {
             "sample_count": comparable_count,
@@ -356,7 +449,11 @@ def summarize(
         },
         "notes": [
             "Intermediate and initial accuracy use the fixed evaluation subset; the final full evaluation is not directly comparable.",
-            "Estimated zero-variance token cost weights each batch token count by its zero-variance group ratio; per-group token lengths were not logged.",
+            (
+                "Exact discarded token cost comes from per-group Dynamic Sampling logs."
+                if exact_discarded_tokens is not None
+                else "Estimated zero-variance token cost weights each batch token count by its zero-variance group ratio; per-group token lengths were not logged."
+            ),
         ],
     }
     return summary

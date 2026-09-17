@@ -1,0 +1,78 @@
+{
+  "budget": {
+    "vanilla_rollout_tokens": 4023667,
+    "dynamic_rollout_tokens": 4009358
+  },
+  "optimization": {
+    "vanilla_steps": 152,
+    "dynamic_steps": 74,
+    "vanilla_elapsed_seconds": 1520.3612253665924,
+    "dynamic_elapsed_seconds": 1441.528324842453
+  },
+  "sampling": {
+    "vanilla_attempted_groups": 1216,
+    "vanilla_effective_groups": 579,
+    "vanilla_optimized_effective_groups": 579,
+    "dynamic_attempted_groups": 1192,
+    "dynamic_effective_groups": 595,
+    "dynamic_optimized_groups": 592,
+    "dynamic_optimized_effective_groups": 592,
+    "dynamic_discarded_groups": 597,
+    "dynamic_discarded_rollout_tokens": 1778411,
+    "dynamic_discarded_rollout_token_ratio": 0.44356502961321986,
+    "vanilla_optimized_effective_groups_per_million_tokens": 143.8985880292778,
+    "dynamic_optimized_effective_groups_per_million_tokens": 147.65456215184577,
+    "optimized_effective_groups_per_million_relative_change": 0.026101535630104866
+  },
+  "performance": {
+    "vanilla_final_full_accuracy": 0.8180439727065959,
+    "dynamic_final_full_accuracy": 0.78013646702047,
+    "dynamic_minus_vanilla_accuracy_points": -3.7907505686125886,
+    "tokens_to_target_accuracy": {
+      "0.65": {
+        "vanilla": {
+          "model_step": 30,
+          "cumulative_rollout_tokens": 822210,
+          "accuracy": 0.671875
+        },
+        "dynamic": {
+          "model_step": 40,
+          "cumulative_rollout_tokens": 1833800,
+          "accuracy": 0.65625
+        },
+        "dynamic_to_vanilla_token_ratio": 2.2303304508580535
+      },
+      "0.70": {
+        "vanilla": {
+          "model_step": 60,
+          "cumulative_rollout_tokens": 1600923,
+          "accuracy": 0.7109375
+        },
+        "dynamic": {
+          "model_step": 60,
+          "cumulative_rollout_tokens": 3041139,
+          "accuracy": 0.71484375
+        },
+        "dynamic_to_vanilla_token_ratio": 1.899616034000386
+      },
+      "0.75": {
+        "vanilla": {
+          "model_step": 90,
+          "cumulative_rollout_tokens": 2394308,
+          "accuracy": 0.75
+        },
+        "dynamic": null,
+        "dynamic_to_vanilla_token_ratio": null
+      },
+      "0.79": {
+        "vanilla": {
+          "model_step": 150,
+          "cumulative_rollout_tokens": 3972957,
+          "accuracy": 0.79296875
+        },
+        "dynamic": null,
+        "dynamic_to_vanilla_token_ratio": null
+      }
+    }
+  }
+}

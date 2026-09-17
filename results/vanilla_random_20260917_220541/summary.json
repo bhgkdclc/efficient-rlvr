@@ -14,13 +14,23 @@
     "total_rollout_tokens": 4023667,
     "generated_response_tokens": 3448571,
     "estimated_zero_variance_rollout_tokens": 2065966,
-    "estimated_zero_variance_token_ratio": 0.5134535238626855
+    "estimated_zero_variance_token_ratio": 0.5134535238626855,
+    "exact_discarded_rollout_tokens": null,
+    "exact_discarded_rollout_token_ratio": null
   },
   "groups": {
     "total_groups": 1216,
+    "attempted_groups": 1216,
     "zero_variance_groups": 637,
     "effective_groups": 579,
-    "zero_variance_group_ratio": 0.5238486842105263
+    "zero_variance_group_ratio": 0.5238486842105263,
+    "accepted_groups": 1216,
+    "discarded_groups": 0,
+    "optimized_groups": 1216,
+    "optimized_effective_groups": 579,
+    "optimizer_batch_effective_group_ratio": 0.4761513157894737,
+    "effective_groups_per_million_rollout_tokens": 143.8985880292778,
+    "optimized_effective_groups_per_million_rollout_tokens": 143.8985880292778
   },
   "comparable_evaluation": {
     "sample_count": 256,
