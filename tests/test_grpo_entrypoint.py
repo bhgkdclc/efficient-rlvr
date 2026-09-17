@@ -21,3 +21,25 @@ def test_parser_accepts_dynamic_sampling():
     )
 
     assert args.sampling_strategy == "dynamic"
+
+
+def test_parser_accepts_difficulty_sampling_configuration():
+    args = build_parser().parse_args(
+        [
+            "--output-path",
+            "unused",
+            "--sampling-strategy",
+            "difficulty",
+            "--difficulty-ema-beta",
+            "0.8",
+            "--sampling-uniform-epsilon",
+            "0.2",
+            "--difficulty-warmup-groups",
+            "64",
+        ]
+    )
+
+    assert args.sampling_strategy == "difficulty"
+    assert args.difficulty_ema_beta == 0.8
+    assert args.sampling_uniform_epsilon == 0.2
+    assert args.difficulty_warmup_groups == 64

@@ -12,11 +12,15 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 - `scripts/run_vanilla_baseline.sh`
 - `scripts/run_dynamic_smoke.sh`
 - `scripts/run_dynamic_baseline.sh`
+- `scripts/run_difficulty_smoke.sh`
+- `scripts/run_difficulty_baseline.sh`
 
 Dynamic sampling discards zero-variance groups after generation and resamples
 until the optimizer batch contains the requested number of effective groups.
 Its logs include the token cost of every discarded group. Difficulty-aware
-sampling remains out of scope until the dynamic baseline curve is collected.
+sampling uses an EMA of per-prompt answer accuracy, prioritizes prompts using
+`4p(1-p)`, and retains configurable uniform exploration. It does not apply
+post-rollout filtering, so it is directly comparable with the random sampler.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;

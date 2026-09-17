@@ -1,6 +1,9 @@
 import pytest
 
-from cs336_alignment.sampling import split_group_indices_by_reward_variance
+from cs336_alignment.sampling import (
+    DifficultyAwareSampler,
+    split_group_indices_by_reward_variance,
+)
 
 
 def test_split_group_indices_by_reward_variance():
@@ -39,3 +42,76 @@ def test_split_group_indices_rejects_invalid_inputs(
 ):
     with pytest.raises(ValueError, match=message):
         split_group_indices_by_reward_variance(rewards, group_size, epsilon)
+
+
+def test_difficulty_sampler_warms_up_with_unique_prompts():
+    sampler = DifficultyAwareSampler(
+        num_prompts=20,
+        ema_beta=0.9,
+        uniform_epsilon=0.1,
+        warmup_groups=8,
+        seed=42,
+    )
+
+    first, first_metadata = sampler.sample(4)
+    sampler.update(first, [0.0, 0.25, 0.5, 1.0], step=0)
+    second, second_metadata = sampler.sample(4)
+
+    assert len(set(first + second)) == 8
+    assert first_metadata["warmup_active"] is True
+    assert first_metadata["selected_seen_ratio"] == 0.0
+    assert second_metadata["observed_prompts_before"] == 4
+
+
+def test_difficulty_sampler_updates_ema_accuracy():
+    sampler = DifficultyAwareSampler(
+        num_prompts=4,
+        ema_beta=0.5,
+        uniform_epsilon=0.0,
+        warmup_groups=0,
+        seed=42,
+    )
+
+    sampler.update([2], [0.25], step=0)
+    sampler.update([2], [0.75], step=1)
+
+    assert sampler.ema_accuracy[2] == pytest.approx(0.5)
+    assert sampler.sample_counts[2] == 2
+    assert sampler.last_sampled_steps[2] == 1
+    assert sampler.boundary_score(sampler.ema_accuracy[2]) == pytest.approx(1.0)
+
+
+def test_difficulty_sampler_prefers_model_boundary_without_exploration():
+    sampler = DifficultyAwareSampler(
+        num_prompts=3,
+        ema_beta=0.9,
+        uniform_epsilon=0.0,
+        warmup_groups=0,
+        seed=42,
+    )
+    sampler.update([0, 1, 2], [0.0, 0.5, 1.0], step=0)
+
+    selected, metadata = sampler.sample(1)
+
+    assert selected == [1]
+    assert metadata["selected_ema_accuracy_mean"] == pytest.approx(0.5)
+    assert metadata["selected_boundary_score_mean"] == pytest.approx(1.0)
+
+
+def test_difficulty_sampler_state_only_contains_observed_prompts(tmp_path):
+    sampler = DifficultyAwareSampler(
+        num_prompts=10,
+        ema_beta=0.9,
+        uniform_epsilon=0.1,
+        warmup_groups=2,
+        seed=42,
+    )
+    sampler.update([3, 7], [0.25, 0.75], step=4)
+    state_path = tmp_path / "sampler_state.json"
+
+    sampler.save(state_path)
+
+    state = sampler.state_dict()
+    assert state["observed_prompt_count"] == 2
+    assert [item["prompt_index"] for item in state["prompt_states"]] == [3, 7]
+    assert state_path.exists()

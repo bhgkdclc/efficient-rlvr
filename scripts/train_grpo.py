@@ -32,7 +32,10 @@ from cs336_alignment.grpo import (
     grpo_microbatch_train_step,
 )
 from cs336_alignment.rewards import make_weighted_reward_fn
-from cs336_alignment.sampling import split_group_indices_by_reward_variance
+from cs336_alignment.sampling import (
+    DifficultyAwareSampler,
+    split_group_indices_by_reward_variance,
+)
 from cs336_alignment.tokenize_prompt_and_output import tokenize_prompt_and_output
 
 
@@ -204,6 +207,28 @@ def load_dataset_and_format_qa(args: argparse.Namespace):
 
 def ground_truth_from_answer(answer: str) -> str:
     return extract_answer(answer) or answer
+
+
+def compute_group_answer_accuracies(
+    reward_fn: Callable[[str, str], dict[str, float]],
+    responses: list[str],
+    repeated_ground_truths: list[str],
+    group_size: int,
+) -> list[float]:
+    if group_size <= 0:
+        raise ValueError("group_size must be positive")
+    if len(responses) != len(repeated_ground_truths):
+        raise ValueError("responses and ground truths must have equal length")
+    if len(responses) % group_size != 0:
+        raise ValueError("number of responses must be divisible by group_size")
+    answer_rewards = [
+        float(reward_fn(response, ground_truth).get("answer_reward", 0.0))
+        for response, ground_truth in zip(responses, repeated_ground_truths)
+    ]
+    return [
+        sum(answer_rewards[start : start + group_size]) / group_size
+        for start in range(0, len(answer_rewards), group_size)
+    ]
 
 
 def rollout_token_counts(outputs) -> dict[str, float | int]:
@@ -385,6 +410,16 @@ def train_grpo_experiment(
             f"need at least {prompts_per_rollout_batch} train prompts, got {len(train_data)}"
         )
 
+    difficulty_sampler = None
+    if args.sampling_strategy == "difficulty":
+        difficulty_sampler = DifficultyAwareSampler(
+            num_prompts=len(train_data),
+            ema_beta=args.difficulty_ema_beta,
+            uniform_epsilon=args.sampling_uniform_epsilon,
+            warmup_groups=args.difficulty_warmup_groups,
+            seed=args.seed,
+        )
+
     stop_strings = ["</answer>"] if args.reward_mode == "r1_zero" else None
     rollout_kwargs = {
         "temperature": args.sampling_temperature,
@@ -471,6 +506,7 @@ def train_grpo_experiment(
         discarded_groups = 0
         resample_rounds = 0
         batch_complete = True
+        difficulty_metadata: dict[str, Any] = {}
 
         if args.sampling_strategy == "dynamic":
             candidate_indices = list(range(len(train_data)))
@@ -479,7 +515,8 @@ def train_grpo_experiment(
             groups_needed = prompts_per_rollout_batch - accepted_groups
             if args.sampling_strategy == "random":
                 rollout_dataset = random.sample(train_data, groups_needed)
-            else:
+                round_prompt_indices: list[int] = []
+            elif args.sampling_strategy == "dynamic":
                 if groups_needed > len(candidate_indices):
                     raise RuntimeError(
                         "dynamic sampling exhausted the prompt pool before collecting "
@@ -495,6 +532,15 @@ def train_grpo_experiment(
                     if index not in selected_index_set
                 ]
                 rollout_dataset = [train_data[index] for index in selected_indices]
+                round_prompt_indices = selected_indices
+            else:
+                assert difficulty_sampler is not None
+                round_prompt_indices, difficulty_metadata = (
+                    difficulty_sampler.sample(groups_needed)
+                )
+                rollout_dataset = [
+                    train_data[index] for index in round_prompt_indices
+                ]
 
             rollout_prompts = [item["prompt"] for item in rollout_dataset]
             rollout_answers = [item["answer"] for item in rollout_dataset]
@@ -551,7 +597,40 @@ def train_grpo_experiment(
                     args.zero_variance_epsilon,
                 )
             )
-            if args.sampling_strategy == "random":
+            if difficulty_sampler is not None:
+                group_accuracies = compute_group_answer_accuracies(
+                    reward_fn,
+                    round_responses,
+                    round_ground_truths,
+                    args.group_size,
+                )
+                difficulty_sampler.update(
+                    round_prompt_indices,
+                    group_accuracies,
+                    step=grpo_step,
+                )
+                difficulty_metadata.update(
+                    {
+                        "observed_prompts_after": (
+                            difficulty_sampler.observed_prompt_count
+                        ),
+                        "selected_group_accuracy_mean": (
+                            sum(group_accuracies) / len(group_accuracies)
+                        ),
+                        "selected_sample_count_mean_after": (
+                            sum(
+                                difficulty_sampler.sample_counts[index]
+                                for index in round_prompt_indices
+                            )
+                            / len(round_prompt_indices)
+                        ),
+                    }
+                )
+                difficulty_sampler.save(
+                    Path(args.output_path) / "sampler_state.json"
+                )
+
+            if args.sampling_strategy != "dynamic":
                 accepted_indices = list(range(len(outputs)))
             else:
                 accepted_indices = effective_indices
@@ -581,7 +660,7 @@ def train_grpo_experiment(
                         discarded_groups * args.group_size,
                     )
 
-            if args.sampling_strategy == "random":
+            if args.sampling_strategy != "dynamic":
                 break
             if accepted_groups < prompts_per_rollout_batch:
                 resample_rounds += 1
@@ -675,6 +754,10 @@ def train_grpo_experiment(
                 "sampling/cumulative_discarded_total_rollout_tokens": (
                     cumulative_discarded_rollout_tokens
                 ),
+                **{
+                    f"difficulty/{key}": value
+                    for key, value in difficulty_metadata.items()
+                },
             }
         )
         logger.info(
@@ -690,6 +773,16 @@ def train_grpo_experiment(
             discarded_groups,
             token_counts["generated_response_tokens"],
         )
+        if difficulty_sampler is not None:
+            logger.info(
+                "difficulty warmup=%s observed=%d selected_seen=%.3f "
+                "selected_ema_accuracy=%s boundary_score=%s",
+                difficulty_metadata["warmup_active"],
+                difficulty_metadata["observed_prompts_after"],
+                difficulty_metadata["selected_seen_ratio"],
+                difficulty_metadata["selected_ema_accuracy_mean"],
+                difficulty_metadata["selected_boundary_score_mean"],
+            )
 
         if not batch_complete:
             logger.info(
@@ -944,8 +1037,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--sampling-strategy", choices=["random", "dynamic"], default="random"
+        "--sampling-strategy",
+        choices=["random", "dynamic", "difficulty"],
+        default="random",
     )
+    parser.add_argument("--difficulty-ema-beta", type=float, default=0.9)
+    parser.add_argument("--sampling-uniform-epsilon", type=float, default=0.1)
+    parser.add_argument("--difficulty-warmup-groups", type=int, default=128)
     parser.add_argument("--n-grpo-steps", type=int, default=200)
     parser.add_argument("--rollout-batch-size", type=int, default=256)
     parser.add_argument("--group-size", type=int, default=8)
