@@ -1,0 +1,133 @@
+{
+  "run": {
+    "git_commit": "2f390a238b122d4ffff14ad83365051a1b2b0270",
+    "seed": 42,
+    "model_name_or_path": "/root/autodl-tmp/efficient-rlvr-cache/models/Qwen2.5-Math-1.5B",
+    "dataset": "data/gsm8k/train.jsonl",
+    "sampling_strategy": "random",
+    "group_size": 8,
+    "rollout_batch_size": 64,
+    "completed_grpo_steps": 152,
+    "elapsed_train_seconds": 1520.3612253665924
+  },
+  "rollout_cost": {
+    "total_rollout_tokens": 4023667,
+    "generated_response_tokens": 3448571,
+    "estimated_zero_variance_rollout_tokens": 2065966,
+    "estimated_zero_variance_token_ratio": 0.5134535238626855
+  },
+  "groups": {
+    "total_groups": 1216,
+    "zero_variance_groups": 637,
+    "effective_groups": 579,
+    "zero_variance_group_ratio": 0.5238486842105263
+  },
+  "comparable_evaluation": {
+    "sample_count": 256,
+    "initial_step": 0,
+    "initial_accuracy": 0.6171875,
+    "last_step": 150,
+    "last_accuracy": 0.79296875,
+    "accuracy_gain_points": 17.578125,
+    "rollout_tokens_per_accuracy_point": 226017.10933333333,
+    "tokens_to_target_accuracy": {
+      "0.65": {
+        "model_step": 30,
+        "cumulative_rollout_tokens": 822210,
+        "accuracy": 0.671875
+      },
+      "0.70": {
+        "model_step": 60,
+        "cumulative_rollout_tokens": 1600923,
+        "accuracy": 0.7109375
+      },
+      "0.75": {
+        "model_step": 90,
+        "cumulative_rollout_tokens": 2394308,
+        "accuracy": 0.75
+      },
+      "0.79": {
+        "model_step": 150,
+        "cumulative_rollout_tokens": 3972957,
+        "accuracy": 0.79296875
+      }
+    }
+  },
+  "final_full_evaluation": {
+    "model_step": 152,
+    "sample_count": 1319,
+    "correct": 1079,
+    "accuracy": 0.8180439727065959,
+    "wrong_answer": 156,
+    "wrong_format": 84
+  },
+  "trend": {
+    "step_vs_zero_variance_pearson_r": 0.46673234889713733,
+    "window_means": {
+      "first_20_steps": {
+        "zero_variance_group_ratio": 0.28125,
+        "effective_group_ratio": 0.71875,
+        "all_correct_group_ratio": 0.2625,
+        "all_wrong_group_ratio": 0.075,
+        "mixed_group_ratio": 0.6625,
+        "format_reward_mean": 0.85546875,
+        "answer_reward_mean": 0.659375,
+        "reward_mean": 0.744921886920929,
+        "reward_std": 0.48614446073770523,
+        "group_reward_variance_mean": 0.12929199738427996,
+        "advantage_std": 0.7898810863494873,
+        "average_response_length": 366.91328125,
+        "policy_entropy": 0.21689962991482753
+      },
+      "middle_20_steps": {
+        "zero_variance_group_ratio": 0.55625,
+        "effective_group_ratio": 0.44375,
+        "all_correct_group_ratio": 0.55,
+        "all_wrong_group_ratio": 0.05,
+        "mixed_group_ratio": 0.4,
+        "format_reward_mean": 0.90703125,
+        "answer_reward_mean": 0.8125,
+        "reward_mean": 0.9032031327486039,
+        "reward_std": 0.3883267633616924,
+        "group_reward_variance_mean": 0.07409082436934114,
+        "advantage_std": 0.6079111069440841,
+        "average_response_length": 356.50234375,
+        "policy_entropy": 0.17785562015242906
+      },
+      "last_20_steps": {
+        "zero_variance_group_ratio": 0.65,
+        "effective_group_ratio": 0.35,
+        "all_correct_group_ratio": 0.63125,
+        "all_wrong_group_ratio": 0.03125,
+        "mixed_group_ratio": 0.3375,
+        "format_reward_mean": 0.925,
+        "answer_reward_mean": 0.85078125,
+        "reward_mean": 0.9432812422513962,
+        "reward_std": 0.33287251368165016,
+        "group_reward_variance_mean": 0.06356836361810565,
+        "advantage_std": 0.5204809104441666,
+        "average_response_length": 346.53984375,
+        "policy_entropy": 0.16360786402878727
+      },
+      "all_steps": {
+        "zero_variance_group_ratio": 0.5238486842105263,
+        "effective_group_ratio": 0.4761513157894737,
+        "all_correct_group_ratio": 0.5024671052631579,
+        "all_wrong_group_ratio": 0.05098684210526316,
+        "mixed_group_ratio": 0.4465460526315789,
+        "format_reward_mean": 0.901624177631579,
+        "answer_reward_mean": 0.7887541118421053,
+        "reward_mean": 0.878916533369767,
+        "reward_std": 0.39813651418999624,
+        "group_reward_variance_mean": 0.08421862607601245,
+        "advantage_std": 0.6241481366267084,
+        "average_response_length": 354.4994860197368,
+        "policy_entropy": 0.17996431545319774
+      }
+    }
+  },
+  "notes": [
+    "Intermediate and initial accuracy use the fixed evaluation subset; the final full evaluation is not directly comparable.",
+    "Estimated zero-variance token cost weights each batch token count by its zero-variance group ratio; per-group token lengths were not logged."
+  ]
+}

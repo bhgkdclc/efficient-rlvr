@@ -13,3 +13,7 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 
 Both use random prompt sampling. Dynamic and difficulty-aware sampling are not
 implemented until the vanilla curve has been collected.
+
+After a run, generate standardized summaries, CSV files, and plots with
+`scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;
+large checkpoints and raw logs remain under this ignored directory.

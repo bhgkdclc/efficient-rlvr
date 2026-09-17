@@ -170,5 +170,6 @@ wandb/
 sft_logs/
 grpo_logs/
 .cloud-cache/
+*.bundle
 experiments/*
 !experiments/README.md
