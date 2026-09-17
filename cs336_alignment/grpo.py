@@ -1,6 +1,7 @@
 import torch
 from typing import Callable, Literal
 from .masked_normalize import masked_normalize
+from .grpo_metrics import compute_group_diagnostics
 
 def compute_group_normalized_rewards(
     reward_fn: Callable[[str, str], dict[str, float]],
@@ -9,6 +10,7 @@ def compute_group_normalized_rewards(
     group_size,
     advantage_eps,
     normalize_by_std,
+    zero_variance_epsilon: float = 1e-8,
 ):
     """为每组 rollout 响应计算奖励,并按组进行归一化。
 
@@ -42,10 +44,16 @@ def compute_group_normalized_rewards(
         - metadata: 用户自定义的其他统计信息,可用于日志记录（例如奖励的均值、标准差、最大/最小值等）。
     """
     rewards = []
+    format_rewards = []
+    answer_rewards = []
     for rollout_response, ground_truth in zip(rollout_responses, repeated_ground_truths):
         reward_dict = reward_fn(rollout_response, ground_truth)
         rewards.append(reward_dict["reward"])
+        format_rewards.append(reward_dict.get("format_reward", 0.0))
+        answer_rewards.append(reward_dict.get("answer_reward", 0.0))
     rewards = torch.tensor(rewards)         # [n_prompts_per_rollout_batch * group_size, 1]
+    format_rewards = torch.tensor(format_rewards, dtype=rewards.dtype)
+    answer_rewards = torch.tensor(answer_rewards, dtype=rewards.dtype)
     group = rewards.reshape(-1, group_size) # [n_prompts_per_rollout_batch, group_size]
     group_mean = torch.mean(group, dim=-1, keepdim=True) # [n_prompts_per_rollout_batch, 1]
     advantages = group - group_mean         # [n_prompts_per_rollout_batch, group_size]
@@ -54,12 +62,14 @@ def compute_group_normalized_rewards(
         group_std = torch.std(group, dim=-1, keepdim=True) # [n_prompts_per_rollout_batch, 1]
         advantages /= (group_std + advantage_eps)
     advantages = advantages.flatten() # [n_prompts_per_rollout_batch * group_size, 1]
-    metadata = {
-        'mean': torch.mean(rewards),
-        'std': torch.std(rewards),
-        'max': torch.max(rewards),
-        'min': torch.min(rewards)
-    }
+    metadata = compute_group_diagnostics(
+        rewards=rewards,
+        advantages=advantages,
+        group_size=group_size,
+        zero_variance_epsilon=zero_variance_epsilon,
+        format_rewards=format_rewards,
+        answer_rewards=answer_rewards,
+    )
     return advantages, rewards, metadata
 
 
@@ -137,8 +147,7 @@ def compute_policy_gradient_loss(
         assert advantages is not None, "advantages is required for 'grpo_clip'"
         assert old_log_probs is not None, "old_log_probs is required for 'grpo_clip'"
         assert cliprange is not None, "cliprange is required for 'grpo_clip'"
-        # return compute_grpo_clip_loss(advantages, policy_log_probs, old_log_probs, cliprange)
-        return compute_grpo_no_clip_loss(advantages, policy_log_probs, old_log_probs)
+        return compute_grpo_clip_loss(advantages, policy_log_probs, old_log_probs, cliprange)
     elif loss_type == "reinforce_with_baseline":
         assert advantages is not None, "advantages is required for 'reinforce_with_baseline'"
         loss = compute_naive_policy_gradient_loss(advantages, policy_log_probs)

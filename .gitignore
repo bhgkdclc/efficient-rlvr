@@ -169,3 +169,6 @@ cython_debug/
 wandb/
 sft_logs/
 grpo_logs/
+.cloud-cache/
+experiments/*
+!experiments/README.md
