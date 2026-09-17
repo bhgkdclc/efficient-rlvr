@@ -10,9 +10,13 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 
 - `scripts/run_vanilla_smoke.sh`
 - `scripts/run_vanilla_baseline.sh`
+- `scripts/run_dynamic_smoke.sh`
+- `scripts/run_dynamic_baseline.sh`
 
-Both use random prompt sampling. Dynamic and difficulty-aware sampling are not
-implemented until the vanilla curve has been collected.
+Dynamic sampling discards zero-variance groups after generation and resamples
+until the optimizer batch contains the requested number of effective groups.
+Its logs include the token cost of every discarded group. Difficulty-aware
+sampling remains out of scope until the dynamic baseline curve is collected.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;

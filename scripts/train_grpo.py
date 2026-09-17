@@ -32,6 +32,7 @@ from cs336_alignment.grpo import (
     grpo_microbatch_train_step,
 )
 from cs336_alignment.rewards import make_weighted_reward_fn
+from cs336_alignment.sampling import split_group_indices_by_reward_variance
 from cs336_alignment.tokenize_prompt_and_output import tokenize_prompt_and_output
 
 
@@ -225,6 +226,46 @@ def rollout_token_counts(outputs) -> dict[str, float | int]:
     }
 
 
+def rollout_group_token_counts(output) -> dict[str, int]:
+    """Return the exact generation cost for one prompt and its response group."""
+    generated_response_tokens = sum(
+        len(completion.token_ids) for completion in output.outputs
+    )
+    prompt_tokens = len(output.prompt_token_ids or []) * len(output.outputs)
+    return {
+        "generated_response_tokens": generated_response_tokens,
+        "prompt_tokens": prompt_tokens,
+        "total_rollout_tokens": prompt_tokens + generated_response_tokens,
+    }
+
+
+def empty_rollout_token_counts() -> dict[str, float | int]:
+    return {
+        "generated_response_tokens": 0,
+        "prompt_tokens": 0,
+        "total_rollout_tokens": 0,
+        "average_response_length": 0.0,
+    }
+
+
+def add_rollout_token_counts(
+    totals: dict[str, float | int],
+    counts: dict[str, float | int],
+    response_count: int,
+) -> None:
+    for key in (
+        "generated_response_tokens",
+        "prompt_tokens",
+        "total_rollout_tokens",
+    ):
+        totals[key] = int(totals[key]) + int(counts[key])
+    totals["average_response_length"] = (
+        int(totals["generated_response_tokens"]) / response_count
+        if response_count
+        else 0.0
+    )
+
+
 def evaluate_vllm(
     vllm_model,
     reward_fn: Callable[[str, str], dict[str, float]],
@@ -318,8 +359,6 @@ def train_grpo_experiment(
 ) -> None:
     from vllm import SamplingParams
 
-    if args.sampling_strategy != "random":
-        raise ValueError("Only random sampling is implemented in the vanilla baseline")
     if args.rollout_batch_size % args.group_size != 0:
         raise ValueError("rollout_batch_size must be divisible by group_size")
     if args.train_batch_size % args.gradient_accumulation_steps != 0:
@@ -400,6 +439,11 @@ def train_grpo_experiment(
     train_step = 0
     cumulative_response_tokens = 0
     cumulative_rollout_tokens = 0
+    cumulative_attempted_groups = 0
+    cumulative_accepted_groups = 0
+    cumulative_discarded_groups = 0
+    cumulative_discarded_response_tokens = 0
+    cumulative_discarded_rollout_tokens = 0
     smooth_train_loss = 0.0
     training_start = time.time()
     last_evaluated_model_step = 0 if args.eval_before_training else -1
@@ -413,43 +457,176 @@ def train_grpo_experiment(
             logger.info("reached total rollout-token budget")
             break
 
-        rollout_dataset = random.sample(train_data, prompts_per_rollout_batch)
-        rollout_prompts = [item["prompt"] for item in rollout_dataset]
-        rollout_answers = [item["answer"] for item in rollout_dataset]
-
         load_policy_into_vllm_instance(model, vllm, args.vllm_device)
-        outputs = vllm.generate(rollout_prompts, rollout_sampling_params)
-        token_counts = rollout_token_counts(outputs)
-        cumulative_response_tokens += int(token_counts["generated_response_tokens"])
-        cumulative_rollout_tokens += int(token_counts["total_rollout_tokens"])
+        token_counts = empty_rollout_token_counts()
+        accepted_token_counts = empty_rollout_token_counts()
+        discarded_token_counts = empty_rollout_token_counts()
+        attempted_responses: list[str] = []
+        attempted_ground_truths: list[str] = []
+        responses: list[str] = []
+        repeated_ground_truths: list[str] = []
+        prompts: list[str] = []
+        attempted_groups = 0
+        accepted_groups = 0
+        discarded_groups = 0
+        resample_rounds = 0
+        batch_complete = True
 
-        repeated_ground_truths = []
-        responses = []
-        prompts = []
-        for output, prompt, answer in zip(
-            outputs, rollout_prompts, rollout_answers
-        ):
-            ground_truth = ground_truth_from_answer(answer)
-            if len(output.outputs) != args.group_size:
+        if args.sampling_strategy == "dynamic":
+            candidate_indices = list(range(len(train_data)))
+
+        while accepted_groups < prompts_per_rollout_batch:
+            groups_needed = prompts_per_rollout_batch - accepted_groups
+            if args.sampling_strategy == "random":
+                rollout_dataset = random.sample(train_data, groups_needed)
+            else:
+                if groups_needed > len(candidate_indices):
+                    raise RuntimeError(
+                        "dynamic sampling exhausted the prompt pool before collecting "
+                        "a complete effective batch"
+                    )
+                # This produces the same first prompt draw as random sampling for
+                # a fixed seed, then removes attempted prompts from this batch.
+                selected_indices = random.sample(candidate_indices, groups_needed)
+                selected_index_set = set(selected_indices)
+                candidate_indices = [
+                    index
+                    for index in candidate_indices
+                    if index not in selected_index_set
+                ]
+                rollout_dataset = [train_data[index] for index in selected_indices]
+
+            rollout_prompts = [item["prompt"] for item in rollout_dataset]
+            rollout_answers = [item["answer"] for item in rollout_dataset]
+            outputs = vllm.generate(rollout_prompts, rollout_sampling_params)
+            if len(outputs) != len(rollout_dataset):
                 raise RuntimeError(
-                    f"vLLM returned {len(output.outputs)} samples; expected {args.group_size}"
+                    f"vLLM returned {len(outputs)} prompt groups; "
+                    f"expected {len(rollout_dataset)}"
                 )
-            for completion in output.outputs:
-                repeated_ground_truths.append(ground_truth)
-                prompts.append(prompt)
-                responses.append(completion.text)
+            round_token_counts = rollout_token_counts(outputs)
+            attempted_groups += len(outputs)
+            add_rollout_token_counts(
+                token_counts,
+                round_token_counts,
+                attempted_groups * args.group_size,
+            )
+            cumulative_response_tokens += int(
+                round_token_counts["generated_response_tokens"]
+            )
+            cumulative_rollout_tokens += int(
+                round_token_counts["total_rollout_tokens"]
+            )
 
-        advantages, raw_rewards, rollout_metadata = (
-            compute_group_normalized_rewards(
+            round_responses: list[str] = []
+            round_ground_truths: list[str] = []
+            round_prompts: list[str] = []
+            for output, prompt, answer in zip(
+                outputs, rollout_prompts, rollout_answers
+            ):
+                ground_truth = ground_truth_from_answer(answer)
+                if len(output.outputs) != args.group_size:
+                    raise RuntimeError(
+                        f"vLLM returned {len(output.outputs)} samples; "
+                        f"expected {args.group_size}"
+                    )
+                for completion in output.outputs:
+                    round_ground_truths.append(ground_truth)
+                    round_prompts.append(prompt)
+                    round_responses.append(completion.text)
+
+            _, round_raw_rewards, _ = compute_group_normalized_rewards(
                 reward_fn,
-                responses,
-                repeated_ground_truths,
+                round_responses,
+                round_ground_truths,
                 args.group_size,
                 args.advantage_eps,
                 args.use_std_normalization,
                 args.zero_variance_epsilon,
             )
+            effective_indices, _ = (
+                split_group_indices_by_reward_variance(
+                    round_raw_rewards,
+                    args.group_size,
+                    args.zero_variance_epsilon,
+                )
+            )
+            if args.sampling_strategy == "random":
+                accepted_indices = list(range(len(outputs)))
+            else:
+                accepted_indices = effective_indices
+            accepted_index_set = set(accepted_indices)
+
+            attempted_responses.extend(round_responses)
+            attempted_ground_truths.extend(round_ground_truths)
+            for group_index, output in enumerate(outputs):
+                start = group_index * args.group_size
+                end = start + args.group_size
+                group_counts = rollout_group_token_counts(output)
+                if group_index in accepted_index_set:
+                    accepted_groups += 1
+                    responses.extend(round_responses[start:end])
+                    repeated_ground_truths.extend(round_ground_truths[start:end])
+                    prompts.extend(round_prompts[start:end])
+                    add_rollout_token_counts(
+                        accepted_token_counts,
+                        group_counts,
+                        accepted_groups * args.group_size,
+                    )
+                else:
+                    discarded_groups += 1
+                    add_rollout_token_counts(
+                        discarded_token_counts,
+                        group_counts,
+                        discarded_groups * args.group_size,
+                    )
+
+            if args.sampling_strategy == "random":
+                break
+            if accepted_groups < prompts_per_rollout_batch:
+                resample_rounds += 1
+                if (
+                    args.max_rollout_tokens > 0
+                    and cumulative_rollout_tokens >= args.max_rollout_tokens
+                ):
+                    batch_complete = False
+                    break
+
+        _, _, rollout_metadata = compute_group_normalized_rewards(
+            reward_fn,
+            attempted_responses,
+            attempted_ground_truths,
+            args.group_size,
+            args.advantage_eps,
+            args.use_std_normalization,
+            args.zero_variance_epsilon,
         )
+        cumulative_attempted_groups += attempted_groups
+        cumulative_accepted_groups += accepted_groups
+        cumulative_discarded_groups += discarded_groups
+        cumulative_discarded_response_tokens += int(
+            discarded_token_counts["generated_response_tokens"]
+        )
+        cumulative_discarded_rollout_tokens += int(
+            discarded_token_counts["total_rollout_tokens"]
+        )
+
+        train_batch_metadata: dict[str, Any] = {}
+        if responses:
+            advantages, raw_rewards, train_batch_metadata = (
+                compute_group_normalized_rewards(
+                    reward_fn,
+                    responses,
+                    repeated_ground_truths,
+                    args.group_size,
+                    args.advantage_eps,
+                    args.use_std_normalization,
+                    args.zero_variance_epsilon,
+                )
+            )
+        else:
+            advantages = torch.empty(0)
+            raw_rewards = torch.empty(0)
         advantages = advantages.unsqueeze(1)
         raw_rewards = raw_rewards.unsqueeze(1)
 
@@ -463,19 +640,63 @@ def train_grpo_experiment(
                     for key, value in rollout_metadata.items()
                 },
                 **{f"rollout/{key}": value for key, value in token_counts.items()},
+                **{
+                    f"train_batch/{key}": value
+                    for key, value in train_batch_metadata.items()
+                },
                 "rollout/cumulative_generated_response_tokens": cumulative_response_tokens,
                 "rollout/cumulative_rollout_tokens": cumulative_rollout_tokens,
+                "sampling/strategy": args.sampling_strategy,
+                "sampling/batch_complete": batch_complete,
+                "sampling/attempted_groups": attempted_groups,
+                "sampling/accepted_groups": accepted_groups,
+                "sampling/discarded_zero_variance_groups": discarded_groups,
+                "sampling/resample_rounds": resample_rounds,
+                "sampling/accepted_generated_response_tokens": int(
+                    accepted_token_counts["generated_response_tokens"]
+                ),
+                "sampling/accepted_total_rollout_tokens": int(
+                    accepted_token_counts["total_rollout_tokens"]
+                ),
+                "sampling/discarded_generated_response_tokens": int(
+                    discarded_token_counts["generated_response_tokens"]
+                ),
+                "sampling/discarded_total_rollout_tokens": int(
+                    discarded_token_counts["total_rollout_tokens"]
+                ),
+                "sampling/cumulative_attempted_groups": cumulative_attempted_groups,
+                "sampling/cumulative_accepted_groups": cumulative_accepted_groups,
+                "sampling/cumulative_discarded_zero_variance_groups": (
+                    cumulative_discarded_groups
+                ),
+                "sampling/cumulative_discarded_generated_response_tokens": (
+                    cumulative_discarded_response_tokens
+                ),
+                "sampling/cumulative_discarded_total_rollout_tokens": (
+                    cumulative_discarded_rollout_tokens
+                ),
             }
         )
         logger.info(
-            "rollout %d zero_var=%.3f all_correct=%.3f all_wrong=%.3f mixed=%.3f response_tokens=%d",
+            "rollout %d zero_var=%.3f all_correct=%.3f all_wrong=%.3f "
+            "mixed=%.3f attempted=%d accepted=%d discarded=%d response_tokens=%d",
             grpo_step + 1,
             to_float(rollout_metadata["zero_variance_group_ratio"]),
             to_float(rollout_metadata["all_correct_group_ratio"]),
             to_float(rollout_metadata["all_wrong_group_ratio"]),
             to_float(rollout_metadata["mixed_group_ratio"]),
+            attempted_groups,
+            accepted_groups,
+            discarded_groups,
             token_counts["generated_response_tokens"],
         )
+
+        if not batch_complete:
+            logger.info(
+                "reached total rollout-token budget before collecting a complete "
+                "dynamic training batch"
+            )
+            break
 
         tokenized = tokenize_prompt_and_output(
             prompt_strs=prompts,
@@ -723,7 +944,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--sampling-strategy", choices=["random"], default="random"
+        "--sampling-strategy", choices=["random", "dynamic"], default="random"
     )
     parser.add_argument("--n-grpo-steps", type=int, default=200)
     parser.add_argument("--rollout-batch-size", type=int, default=256)
