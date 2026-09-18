@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dynamic-dir", type=Path, required=True)
     parser.add_argument("--difficulty-dir", type=Path)
     parser.add_argument("--difficulty-beta05-dir", type=Path)
+    parser.add_argument("--difficulty-coverage-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -45,6 +46,7 @@ def plot_accuracy(
         "Difficulty-Aware": "#2ca02c",
         "Difficulty beta=0.9": "#2ca02c",
         "Difficulty beta=0.5": "#9467bd",
+        "Difficulty coverage=0.3": "#8c564b",
     }
     for label, (summary, evaluations) in runs.items():
         fixed = fixed_evaluations(evaluations)
@@ -93,6 +95,7 @@ def plot_efficiency(runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
         "Difficulty-Aware": "#2ca02c",
         "Difficulty beta=0.9": "#2ca02c",
         "Difficulty beta=0.5": "#9467bd",
+        "Difficulty coverage=0.3": "#8c564b",
     }
     colors = [color_map[label] for label in labels]
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.5))
@@ -214,6 +217,10 @@ def main() -> None:
         difficulty_beta05 = load_run(args.difficulty_beta05_dir)
         runs["Difficulty beta=0.5"] = difficulty_beta05
         summaries["difficulty_beta05"] = difficulty_beta05[0]
+    if args.difficulty_coverage_dir:
+        difficulty_coverage = load_run(args.difficulty_coverage_dir)
+        runs["Difficulty coverage=0.3"] = difficulty_coverage
+        summaries["difficulty_coverage"] = difficulty_coverage[0]
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     evaluations = []

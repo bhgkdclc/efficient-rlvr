@@ -605,6 +605,15 @@ def train_grpo_experiment(
                     round_ground_truths,
                     args.group_size,
                 )
+                seen_group_positions = [
+                    position
+                    for position, prompt_index in enumerate(round_prompt_indices)
+                    if difficulty_sampler.ema_accuracy[prompt_index] is not None
+                ]
+                seen_group_accuracies = [
+                    group_accuracies[position] for position in seen_group_positions
+                ]
+                effective_index_set = set(effective_indices)
                 difficulty_sampler.update(
                     round_prompt_indices,
                     group_accuracies,
@@ -621,6 +630,20 @@ def train_grpo_experiment(
                         ),
                         "selected_group_accuracy_mean": (
                             sum(group_accuracies) / len(group_accuracies)
+                        ),
+                        "selected_seen_group_accuracy_mean": (
+                            sum(seen_group_accuracies) / len(seen_group_accuracies)
+                            if seen_group_accuracies
+                            else None
+                        ),
+                        "selected_seen_effective_group_ratio": (
+                            sum(
+                                position in effective_index_set
+                                for position in seen_group_positions
+                            )
+                            / len(seen_group_positions)
+                            if seen_group_positions
+                            else None
                         ),
                         "selected_sample_count_mean_after": (
                             sum(

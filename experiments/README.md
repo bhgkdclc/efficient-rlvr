@@ -17,6 +17,7 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 - `scripts/run_difficulty_fast_ema.sh`
 - `scripts/run_difficulty_coverage_smoke.sh`
 - `scripts/run_difficulty_coverage_baseline.sh`
+- `scripts/run_difficulty_frontloaded_coverage.sh`
 - `scripts/run_replication_seeds.sh`
 
 Dynamic sampling discards zero-variance groups after generation and resamples
@@ -40,6 +41,12 @@ Coverage-aware Difficulty Sampling adds a normalized inverse-square-root
 sample-count score to the boundary score. A zero coverage weight exactly
 recovers the previous sampler. The default coverage experiment uses weight
 0.3 with beta 0.5 to test the measured efficiency-versus-diversity tradeoff.
+
+`run_difficulty_frontloaded_coverage.sh` is the controlled follow-up to that
+fixed-weight ablation. It samples 512 unique groups during warm-up, then sets
+the coverage mixture to zero and uses the unchanged beta=0.5 boundary sampler.
+This tests an early-coverage/late-focus schedule without changing reward,
+loss, rollout budget, or evaluation settings.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;

@@ -75,6 +75,12 @@ ROLLOUT_KEYS = {
     "difficulty_selected_group_accuracy_mean": (
         "difficulty/selected_group_accuracy_mean"
     ),
+    "difficulty_selected_seen_group_accuracy_mean": (
+        "difficulty/selected_seen_group_accuracy_mean"
+    ),
+    "difficulty_selected_seen_effective_group_ratio": (
+        "difficulty/selected_seen_effective_group_ratio"
+    ),
     "difficulty_selected_sample_count_mean_after": (
         "difficulty/selected_sample_count_mean_after"
     ),
@@ -270,14 +276,42 @@ def save_difficulty_calibration_plot(
         or rollouts["difficulty_selected_ema_accuracy_mean"].isna().all()
     ):
         return
-    smooth = rollouts.select_dtypes(include=[np.number]).rolling(
+    has_seen_accuracy = (
+        "difficulty_selected_seen_group_accuracy_mean" in rollouts
+        and rollouts["difficulty_selected_seen_group_accuracy_mean"].notna().any()
+    )
+    observed_key = (
+        "difficulty_selected_seen_group_accuracy_mean"
+        if has_seen_accuracy
+        else "difficulty_selected_group_accuracy_mean"
+    )
+    has_seen_effective_ratio = (
+        "difficulty_selected_seen_effective_group_ratio" in rollouts
+        and rollouts["difficulty_selected_seen_effective_group_ratio"]
+        .notna()
+        .any()
+    )
+    effective_key = (
+        "difficulty_selected_seen_effective_group_ratio"
+        if has_seen_effective_ratio
+        else "effective_group_ratio"
+    )
+    valid = rollouts[
+        ~rollouts["difficulty_warmup_active"].astype(bool)
+        & rollouts["difficulty_selected_ema_accuracy_mean"].notna()
+        & rollouts[observed_key].notna()
+        & rollouts[effective_key].notna()
+    ]
+    if not (has_seen_accuracy and has_seen_effective_ratio):
+        valid = valid[valid["difficulty_selected_seen_ratio"] == 1.0]
+    if len(valid) < 2:
+        (output_dir / "difficulty_calibration.png").unlink(missing_ok=True)
+        return
+    smooth = valid.select_dtypes(include=[np.number]).rolling(
         rolling_window, min_periods=1
     ).mean()
-    step = rollouts["grpo_step"]
-    post_warmup = rollouts[
-        ~rollouts["difficulty_warmup_active"].astype(bool)
-    ]
-    warmup_end = int(post_warmup.iloc[0]["grpo_step"])
+    step = valid["grpo_step"]
+    warmup_end = int(valid.iloc[0]["grpo_step"])
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 4.2), sharex=True)
     axes[0].plot(
@@ -287,7 +321,7 @@ def save_difficulty_calibration_plot(
     )
     axes[0].plot(
         step,
-        smooth["difficulty_selected_group_accuracy_mean"],
+        smooth[observed_key],
         label="Observed group accuracy",
     )
     axes[0].set_ylabel("Accuracy")
@@ -300,7 +334,7 @@ def save_difficulty_calibration_plot(
     )
     axes[1].plot(
         step,
-        smooth["effective_group_ratio"],
+        smooth[effective_key],
         label="Observed effective ratio",
     )
     axes[1].set_ylabel("Score / ratio")
@@ -467,13 +501,48 @@ def summarize(
     difficulty_summary = None
     if config.get("sampling_strategy") == "difficulty":
         post_warmup = rollouts[~rollouts["difficulty_warmup_active"].astype(bool)]
+        has_seen_accuracy = (
+            "difficulty_selected_seen_group_accuracy_mean" in post_warmup
+            and post_warmup[
+                "difficulty_selected_seen_group_accuracy_mean"
+            ].notna().any()
+        )
+        observed_accuracy_key = (
+            "difficulty_selected_seen_group_accuracy_mean"
+            if has_seen_accuracy
+            else "difficulty_selected_group_accuracy_mean"
+        )
+        has_seen_effective_ratio = (
+            "difficulty_selected_seen_effective_group_ratio" in post_warmup
+            and post_warmup[
+                "difficulty_selected_seen_effective_group_ratio"
+            ].notna().any()
+        )
+        observed_effective_key = (
+            "difficulty_selected_seen_effective_group_ratio"
+            if has_seen_effective_ratio
+            else "effective_group_ratio"
+        )
         calibrated = post_warmup[
-            (post_warmup["difficulty_selected_seen_ratio"] == 1.0)
-            & post_warmup["difficulty_selected_ema_accuracy_mean"].notna()
+            post_warmup["difficulty_selected_ema_accuracy_mean"].notna()
+            & post_warmup[observed_accuracy_key].notna()
+            & post_warmup[observed_effective_key].notna()
         ]
-        predicted_accuracy = calibrated[
-            "difficulty_selected_ema_accuracy_mean"
+        if not (has_seen_accuracy and has_seen_effective_ratio):
+            calibrated = calibrated[
+                calibrated["difficulty_selected_seen_ratio"] == 1.0
+            ]
+        predicted_accuracy = calibrated["difficulty_selected_ema_accuracy_mean"]
+        enough_calibration = len(calibrated) >= 2
+        boundary_scores = calibrated[
+            "difficulty_selected_boundary_score_mean"
         ]
+        effective_ratios = calibrated[observed_effective_key]
+        correlation_available = (
+            enough_calibration
+            and boundary_scores.nunique() > 1
+            and effective_ratios.nunique() > 1
+        )
         difficulty_summary = {
             "warmup_groups": int(config.get("difficulty_warmup_groups", 0)),
             "ema_beta": float(config.get("difficulty_ema_beta", 0.0)),
@@ -497,31 +566,44 @@ def summarize(
             "post_warmup_selected_seen_ratio": float(
                 post_warmup["difficulty_selected_seen_ratio"].mean()
             ),
-            "post_warmup_predicted_accuracy_mean": float(
-                predicted_accuracy.mean()
+            "calibration_batch_count": int(len(calibrated)),
+            "post_warmup_predicted_accuracy_mean": (
+                float(predicted_accuracy.mean()) if enough_calibration else None
             ),
-            "post_warmup_observed_group_accuracy_mean": float(
-                calibrated["difficulty_selected_group_accuracy_mean"].mean()
+            "post_warmup_observed_group_accuracy_mean": (
+                float(calibrated[observed_accuracy_key].mean())
+                if enough_calibration
+                else None
             ),
-            "post_warmup_accuracy_calibration_gap": float(
-                (
-                    calibrated["difficulty_selected_group_accuracy_mean"]
-                    - calibrated["difficulty_selected_ema_accuracy_mean"]
-                ).mean()
+            "post_warmup_accuracy_calibration_gap": (
+                float(
+                    (
+                        calibrated[observed_accuracy_key]
+                        - calibrated["difficulty_selected_ema_accuracy_mean"]
+                    ).mean()
+                )
+                if enough_calibration
+                else None
             ),
-            "boundary_score_vs_effective_ratio_pearson_r": float(
-                np.corrcoef(
-                    calibrated["difficulty_selected_boundary_score_mean"],
-                    calibrated["effective_group_ratio"],
-                )[0, 1]
+            "boundary_score_vs_effective_ratio_pearson_r": (
+                float(
+                    np.corrcoef(
+                        calibrated["difficulty_selected_boundary_score_mean"],
+                        calibrated[observed_effective_key],
+                    )[0, 1]
+                )
+                if correlation_available
+                else None
             ),
-            "last_20_predicted_accuracy_mean": float(
-                predicted_accuracy.tail(20).mean()
+            "last_20_predicted_accuracy_mean": (
+                float(predicted_accuracy.tail(20).mean())
+                if enough_calibration
+                else None
             ),
-            "last_20_observed_group_accuracy_mean": float(
-                calibrated["difficulty_selected_group_accuracy_mean"]
-                .tail(20)
-                .mean()
+            "last_20_observed_group_accuracy_mean": (
+                float(calibrated[observed_accuracy_key].tail(20).mean())
+                if enough_calibration
+                else None
             ),
         }
 

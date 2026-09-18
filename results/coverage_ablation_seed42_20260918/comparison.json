@@ -1,0 +1,223 @@
+{
+  "budget": {
+    "vanilla": 4023667,
+    "dynamic": 4009358,
+    "difficulty": 4008646,
+    "difficulty_beta05": 4005970,
+    "difficulty_coverage": 4001083
+  },
+  "optimization": {
+    "vanilla": {
+      "steps": 152,
+      "elapsed_seconds": 1520.3612253665924
+    },
+    "dynamic": {
+      "steps": 74,
+      "elapsed_seconds": 1441.528324842453
+    },
+    "difficulty": {
+      "steps": 141,
+      "elapsed_seconds": 1477.5624270439148
+    },
+    "difficulty_beta05": {
+      "steps": 141,
+      "elapsed_seconds": 1467.288408279419
+    },
+    "difficulty_coverage": {
+      "steps": 147,
+      "elapsed_seconds": 1526.3849477767944
+    }
+  },
+  "sampling": {
+    "vanilla": {
+      "attempted_groups": 1216,
+      "zero_variance_group_ratio": 0.5238486842105263,
+      "effective_groups": 579,
+      "optimized_effective_groups": 579,
+      "optimized_effective_groups_per_million_tokens": 143.8985880292778,
+      "relative_effective_groups_per_million_vs_vanilla": 0.0,
+      "discarded_groups": 0,
+      "discarded_rollout_tokens": null
+    },
+    "dynamic": {
+      "attempted_groups": 1192,
+      "zero_variance_group_ratio": 0.5008389261744967,
+      "effective_groups": 595,
+      "optimized_effective_groups": 592,
+      "optimized_effective_groups_per_million_tokens": 147.65456215184577,
+      "relative_effective_groups_per_million_vs_vanilla": 0.026101535630104866,
+      "discarded_groups": 597,
+      "discarded_rollout_tokens": 1778411
+    },
+    "difficulty": {
+      "attempted_groups": 1128,
+      "zero_variance_group_ratio": 0.48226950354609927,
+      "effective_groups": 584,
+      "optimized_effective_groups": 584,
+      "optimized_effective_groups_per_million_tokens": 145.68510165277752,
+      "relative_effective_groups_per_million_vs_vanilla": 0.012415087930788049,
+      "discarded_groups": 0,
+      "discarded_rollout_tokens": 0
+    },
+    "difficulty_beta05": {
+      "attempted_groups": 1128,
+      "zero_variance_group_ratio": 0.374113475177305,
+      "effective_groups": 706,
+      "optimized_effective_groups": 706,
+      "optimized_effective_groups_per_million_tokens": 176.23696632775585,
+      "relative_effective_groups_per_million_vs_vanilla": 0.2247303378119212,
+      "discarded_groups": 0,
+      "discarded_rollout_tokens": 0
+    },
+    "difficulty_coverage": {
+      "attempted_groups": 1176,
+      "zero_variance_group_ratio": 0.43537414965986393,
+      "effective_groups": 664,
+      "optimized_effective_groups": 664,
+      "optimized_effective_groups_per_million_tokens": 165.95506766542957,
+      "relative_effective_groups_per_million_vs_vanilla": 0.1532779434337752,
+      "discarded_groups": 0,
+      "discarded_rollout_tokens": 0
+    }
+  },
+  "performance": {
+    "vanilla": {
+      "final_full_accuracy": 0.8180439727065959,
+      "accuracy_points_vs_vanilla": 0.0
+    },
+    "dynamic": {
+      "final_full_accuracy": 0.78013646702047,
+      "accuracy_points_vs_vanilla": -3.7907505686125886
+    },
+    "difficulty": {
+      "final_full_accuracy": 0.8021228203184231,
+      "accuracy_points_vs_vanilla": -1.5921152388172821
+    },
+    "difficulty_beta05": {
+      "final_full_accuracy": 0.8104624715693708,
+      "accuracy_points_vs_vanilla": -0.7581501137225111
+    },
+    "difficulty_coverage": {
+      "final_full_accuracy": 0.8013646702047005,
+      "accuracy_points_vs_vanilla": -1.667930250189542
+    },
+    "tokens_to_target_accuracy": {
+      "0.65": {
+        "vanilla": {
+          "model_step": 30,
+          "cumulative_rollout_tokens": 822210,
+          "accuracy": 0.671875
+        },
+        "vanilla_to_vanilla_token_ratio": 1.0,
+        "dynamic": {
+          "model_step": 40,
+          "cumulative_rollout_tokens": 1833800,
+          "accuracy": 0.65625
+        },
+        "dynamic_to_vanilla_token_ratio": 2.2303304508580535,
+        "difficulty": {
+          "model_step": 20,
+          "cumulative_rollout_tokens": 522949,
+          "accuracy": 0.66015625
+        },
+        "difficulty_to_vanilla_token_ratio": 0.6360285085318835,
+        "difficulty_beta05": {
+          "model_step": 20,
+          "cumulative_rollout_tokens": 527041,
+          "accuracy": 0.66015625
+        },
+        "difficulty_beta05_to_vanilla_token_ratio": 0.6410053392685567,
+        "difficulty_coverage": {
+          "model_step": 30,
+          "cumulative_rollout_tokens": 798970,
+          "accuracy": 0.6640625
+        },
+        "difficulty_coverage_to_vanilla_token_ratio": 0.9717347149754929
+      },
+      "0.70": {
+        "vanilla": {
+          "model_step": 60,
+          "cumulative_rollout_tokens": 1600923,
+          "accuracy": 0.7109375
+        },
+        "vanilla_to_vanilla_token_ratio": 1.0,
+        "dynamic": {
+          "model_step": 60,
+          "cumulative_rollout_tokens": 3041139,
+          "accuracy": 0.71484375
+        },
+        "dynamic_to_vanilla_token_ratio": 1.899616034000386,
+        "difficulty": {
+          "model_step": 60,
+          "cumulative_rollout_tokens": 1684362,
+          "accuracy": 0.703125
+        },
+        "difficulty_to_vanilla_token_ratio": 1.0521193086738088,
+        "difficulty_beta05": {
+          "model_step": 50,
+          "cumulative_rollout_tokens": 1391718,
+          "accuracy": 0.71484375
+        },
+        "difficulty_beta05_to_vanilla_token_ratio": 0.8693222597214232,
+        "difficulty_coverage": {
+          "model_step": 80,
+          "cumulative_rollout_tokens": 2166106,
+          "accuracy": 0.71484375
+        },
+        "difficulty_coverage_to_vanilla_token_ratio": 1.3530357175204555
+      },
+      "0.75": {
+        "vanilla": {
+          "model_step": 90,
+          "cumulative_rollout_tokens": 2394308,
+          "accuracy": 0.75
+        },
+        "vanilla_to_vanilla_token_ratio": 1.0,
+        "dynamic": null,
+        "dynamic_to_vanilla_token_ratio": null,
+        "difficulty": {
+          "model_step": 90,
+          "cumulative_rollout_tokens": 2549669,
+          "accuracy": 0.76171875
+        },
+        "difficulty_to_vanilla_token_ratio": 1.0648876418572715,
+        "difficulty_beta05": {
+          "model_step": 80,
+          "cumulative_rollout_tokens": 2267272,
+          "accuracy": 0.76953125
+        },
+        "difficulty_beta05_to_vanilla_token_ratio": 0.9469424986259077,
+        "difficulty_coverage": {
+          "model_step": 140,
+          "cumulative_rollout_tokens": 3813878,
+          "accuracy": 0.77734375
+        },
+        "difficulty_coverage_to_vanilla_token_ratio": 1.5928936460973275
+      },
+      "0.79": {
+        "vanilla": {
+          "model_step": 150,
+          "cumulative_rollout_tokens": 3972957,
+          "accuracy": 0.79296875
+        },
+        "vanilla_to_vanilla_token_ratio": 1.0,
+        "dynamic": null,
+        "dynamic_to_vanilla_token_ratio": null,
+        "difficulty": {
+          "model_step": 140,
+          "cumulative_rollout_tokens": 3975672,
+          "accuracy": 0.796875
+        },
+        "difficulty_to_vanilla_token_ratio": 1.0006833700943656,
+        "difficulty_beta05": {
+          "model_step": 110,
+          "cumulative_rollout_tokens": 3120415,
+          "accuracy": 0.796875
+        },
+        "difficulty_beta05_to_vanilla_token_ratio": 0.7854137359150879,
+        "difficulty_coverage": null,
+        "difficulty_coverage_to_vanilla_token_ratio": null
+      }
+    }
+  }
+}
