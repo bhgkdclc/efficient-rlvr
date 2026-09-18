@@ -232,19 +232,25 @@ def compute_group_answer_accuracies(
 
 
 def rollout_token_counts(outputs) -> dict[str, float | int]:
-    response_lengths = [
-        len(completion.token_ids)
-        for output in outputs
-        for completion in output.outputs
+    completions = [
+        completion for output in outputs for completion in output.outputs
     ]
+    response_lengths = [len(completion.token_ids) for completion in completions]
     generated_response_tokens = sum(response_lengths)
     prompt_tokens = sum(
         len(output.prompt_token_ids or []) * len(output.outputs) for output in outputs
+    )
+    length_truncated_responses = sum(
+        completion.finish_reason == "length" for completion in completions
     )
     return {
         "generated_response_tokens": generated_response_tokens,
         "prompt_tokens": prompt_tokens,
         "total_rollout_tokens": prompt_tokens + generated_response_tokens,
+        "length_truncated_responses": length_truncated_responses,
+        "length_truncated_response_ratio": (
+            length_truncated_responses / len(completions) if completions else 0.0
+        ),
         "average_response_length": (
             generated_response_tokens / len(response_lengths) if response_lengths else 0.0
         ),
@@ -257,10 +263,14 @@ def rollout_group_token_counts(output) -> dict[str, int]:
         len(completion.token_ids) for completion in output.outputs
     )
     prompt_tokens = len(output.prompt_token_ids or []) * len(output.outputs)
+    length_truncated_responses = sum(
+        completion.finish_reason == "length" for completion in output.outputs
+    )
     return {
         "generated_response_tokens": generated_response_tokens,
         "prompt_tokens": prompt_tokens,
         "total_rollout_tokens": prompt_tokens + generated_response_tokens,
+        "length_truncated_responses": length_truncated_responses,
     }
 
 
@@ -269,6 +279,8 @@ def empty_rollout_token_counts() -> dict[str, float | int]:
         "generated_response_tokens": 0,
         "prompt_tokens": 0,
         "total_rollout_tokens": 0,
+        "length_truncated_responses": 0,
+        "length_truncated_response_ratio": 0.0,
         "average_response_length": 0.0,
     }
 
@@ -282,8 +294,14 @@ def add_rollout_token_counts(
         "generated_response_tokens",
         "prompt_tokens",
         "total_rollout_tokens",
+        "length_truncated_responses",
     ):
         totals[key] = int(totals[key]) + int(counts[key])
+    totals["length_truncated_response_ratio"] = (
+        int(totals["length_truncated_responses"]) / response_count
+        if response_count
+        else 0.0
+    )
     totals["average_response_length"] = (
         int(totals["generated_response_tokens"]) / response_count
         if response_count

@@ -1,0 +1,65 @@
+{
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "aggregate_512": {
+    "vanilla_accuracy_mean": 0.8071771544099064,
+    "difficulty_accuracy_mean": 0.7930250189537529,
+    "paired_difference_pp": -1.4152135456153605
+  },
+  "aggregate_1024": {
+    "vanilla_accuracy_mean": 0.8392721758908265,
+    "vanilla_accuracy_std": 0.00497152276292796,
+    "difficulty_accuracy_mean": 0.8332069749810462,
+    "difficulty_accuracy_std": 0.007311334921147068
+  },
+  "paired_accuracy_difference_pp": {
+    "mean": -0.606520090978017,
+    "sample_std": 0.8938458015581202,
+    "ci95_low": -2.8269561552017506,
+    "ci95_high": 1.613915973245717
+  },
+  "truncation_audit": {
+    "vanilla_accuracy_gain_pp": 3.209502148091992,
+    "difficulty_accuracy_gain_pp": 4.018195602729335,
+    "vanilla_wrong_format_512_mean": 92.66666666666667,
+    "vanilla_wrong_format_1024_mean": 24.0,
+    "difficulty_wrong_format_512_mean": 109.33333333333333,
+    "difficulty_wrong_format_1024_mean": 28.333333333333332
+  },
+  "sampling_efficiency": {
+    "vanilla_effective_groups_per_million_mean": 143.1916675423652,
+    "difficulty_effective_groups_per_million_mean": 176.9933271219398,
+    "relative_gain_mean": 0.23601940169914584,
+    "relative_gain_std": 0.018076091588898998,
+    "vanilla_zero_variance_mean": 0.5268378010260687,
+    "difficulty_zero_variance_mean": 0.36877774938598246
+  },
+  "hybrid": {
+    "total_rollout_tokens": 4021688,
+    "effective_groups_per_million_tokens": 153.91547031992536,
+    "relative_efficiency_change_vs_vanilla_seed42": 0.06961070589941798,
+    "prompt_coverage": 0.09059280074936438,
+    "accuracy_512": 0.7892342683851402,
+    "accuracy_1024": 0.8286580742987112,
+    "accuracy_1024_difference_vs_vanilla_seed42": -0.01592115238817282,
+    "wrong_format_512": 118,
+    "wrong_format_1024": 40,
+    "uniform_stratum": {
+      "groups": 580,
+      "effective_group_ratio": 0.4189655172413793,
+      "group_accuracy_mean": 0.8125,
+      "rollout_tokens": 1907542,
+      "effective_groups_per_million_tokens": 127.38906928392666
+    },
+    "difficulty_stratum": {
+      "groups": 580,
+      "effective_group_ratio": 0.6482758620689655,
+      "group_accuracy_mean": 0.7698275862068965,
+      "rollout_tokens": 2114146,
+      "effective_groups_per_million_tokens": 177.84959033103675
+    }
+  }
+}

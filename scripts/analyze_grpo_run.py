@@ -32,6 +32,10 @@ ROLLOUT_KEYS = {
     "generated_response_tokens": "rollout/generated_response_tokens",
     "total_rollout_tokens": "rollout/total_rollout_tokens",
     "average_response_length": "rollout/average_response_length",
+    "length_truncated_responses": "rollout/length_truncated_responses",
+    "length_truncated_response_ratio": (
+        "rollout/length_truncated_response_ratio"
+    ),
     "cumulative_generated_response_tokens": (
         "rollout/cumulative_generated_response_tokens"
     ),
@@ -452,6 +456,8 @@ def summarize(
         "advantage_std",
         "average_response_length",
     ]
+    if "length_truncated_response_ratio" in rollouts:
+        aggregate_columns.append("length_truncated_response_ratio")
     windows = {
         "first_20_steps": rollouts.head(20),
         "middle_20_steps": rollouts.iloc[
@@ -561,6 +567,16 @@ def summarize(
                     np.average(
                         frame["average_response_length"], weights=phase_weights
                     )
+                ),
+                "length_truncated_response_ratio": (
+                    float(
+                        np.average(
+                            frame["length_truncated_response_ratio"],
+                            weights=phase_weights,
+                        )
+                    )
+                    if "length_truncated_response_ratio" in frame
+                    else None
                 ),
             }
 
@@ -826,6 +842,23 @@ def summarize(
                 "accuracy": float(other.iloc[-1]["eval/accuracy"]),
                 "wrong_answer": int(other.iloc[-1]["eval/wrong_answer"]),
                 "wrong_format": int(other.iloc[-1]["eval/wrong_format"]),
+                "average_response_length": float(
+                    other.iloc[-1]["eval/average_response_length"]
+                ),
+                "length_truncated_responses": (
+                    int(other.iloc[-1]["eval/length_truncated_responses"])
+                    if "eval/length_truncated_responses" in other
+                    else None
+                ),
+                "length_truncated_response_ratio": (
+                    float(
+                        other.iloc[-1][
+                            "eval/length_truncated_response_ratio"
+                        ]
+                    )
+                    if "eval/length_truncated_response_ratio" in other
+                    else None
+                ),
             }
             if not other.empty
             else None

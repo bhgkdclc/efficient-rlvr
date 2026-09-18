@@ -66,11 +66,19 @@ than one percentage point below the paired Vanilla result, and (3) prompt
 coverage exceeds Fast-EMA Difficulty Sampling. Only a passing seed-42 run is
 replicated on seeds 43 and 44. A failure ends this sampling branch and is
 reported as evidence that maximizing group variance alone is not sufficient.
+The observed Hybrid run failed the screen: it reached 153.92 effective groups
+per million tokens and 82.87% full-test Pass@1 at the corrected 1024-token
+limit, so this branch was not replicated.
 
 `run_base_full_eval.sh` evaluates the untouched checkpoint on the complete
 held-out split with exactly the same deterministic decoding settings as final
 training evaluation. It closes the earlier protocol gap where the initial
 checkpoint had only been evaluated on the first 256 examples.
+
+Baseline scripts now use a 1024-token final-evaluation limit and log vLLM
+`finish_reason == "length"` counts. Historical intermediate curves use the
+original 512-token limit; final-checkpoint corrections and the associated
+evaluation audit live under `results/eval_length_audit_20260918/`.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;

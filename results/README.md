@@ -16,8 +16,12 @@ python scripts/analyze_grpo_run.py \
 For Difficulty-Aware runs, also pass
 `--sampler-state experiments/<run>/sampler_state.json`.
 
-The analysis script requires `pandas` and `matplotlib`; keep these optional
-plotting packages out of the training environment if minimizing setup time.
+The analysis scripts require the optional plotting dependencies. Install them
+without changing the training environment with:
+
+```bash
+uv pip install --python .venv/bin/python -r requirements-analysis.txt
+```
 
 Generate a two-run fixed-budget comparison with:
 
@@ -41,6 +45,17 @@ python scripts/compare_multiseed.py \
   --output-dir results/<multiseed-comparison>
 ```
 
+Rebuild the corrected 1024-token endpoint audit from extracted evaluation
+runs with:
+
+```bash
+python scripts/analyze_eval_length_audit.py \
+  --eval-root experiments/final_evaluations \
+  --old-multiseed-dir results/multiseed_vanilla_vs_fast_ema_20260918 \
+  --hybrid-train-dir experiments/hybrid_u50_seed42_<timestamp> \
+  --output-dir results/eval_length_audit_20260918
+```
+
 Current reports:
 
 - `vanilla_random_20260917_220541/report.md`
@@ -55,3 +70,4 @@ Current reports:
 - `coverage_ablation_seed42_20260918/report.md`
 - `difficulty_frontloaded_coverage_seed42_20260918_144542/report.md`
 - `coverage_schedule_ablation_seed42_20260918/report.md`
+- `eval_length_audit_20260918/report.md`

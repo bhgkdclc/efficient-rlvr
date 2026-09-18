@@ -1,5 +1,10 @@
 # Three-seed Vanilla versus Fast-EMA Difficulty Sampling
 
+> **Evaluation note:** The endpoint accuracies in this report use the original
+> 512-token generation limit. The corrected 1024-token final evaluation is in
+> [`../eval_length_audit_20260918/report.md`](../eval_length_audit_20260918/report.md).
+> Rollout-efficiency measurements are unaffected by this evaluation change.
+
 This report compares paired seeds 42, 43, and 44 under an approximately four
 million rollout-token budget. All model, dataset, reward, loss, generation,
 and evaluation settings are identical. Difficulty-Aware Sampling uses

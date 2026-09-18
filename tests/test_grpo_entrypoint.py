@@ -1,7 +1,13 @@
+from types import SimpleNamespace
+
 from scripts.train_grpo import (
+    add_rollout_token_counts,
     build_parser,
+    empty_rollout_token_counts,
     ground_truth_from_answer,
     load_dataset_and_format_qa,
+    rollout_group_token_counts,
+    rollout_token_counts,
 )
 
 
@@ -62,3 +68,27 @@ def test_parser_accepts_hybrid_sampling_configuration():
 
     assert args.sampling_strategy == "hybrid"
     assert args.hybrid_uniform_fraction == 0.5
+
+
+def test_rollout_costs_include_length_truncation():
+    outputs = [
+        SimpleNamespace(
+            prompt_token_ids=[1, 2, 3],
+            outputs=[
+                SimpleNamespace(token_ids=[4, 5], finish_reason="stop"),
+                SimpleNamespace(token_ids=[6, 7, 8], finish_reason="length"),
+            ],
+        )
+    ]
+
+    counts = rollout_token_counts(outputs)
+    group_counts = rollout_group_token_counts(outputs[0])
+    totals = empty_rollout_token_counts()
+    add_rollout_token_counts(totals, group_counts, response_count=2)
+
+    assert counts["generated_response_tokens"] == 5
+    assert counts["prompt_tokens"] == 6
+    assert counts["length_truncated_responses"] == 1
+    assert counts["length_truncated_response_ratio"] == 0.5
+    assert totals["length_truncated_responses"] == 1
+    assert totals["length_truncated_response_ratio"] == 0.5

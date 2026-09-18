@@ -50,7 +50,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --eval-samples 256 \
     --final-eval-samples 0 \
     --eval-temperature 0.0 \
-    --eval-max-tokens 512 \
+    --eval-max-tokens 1024 \
     --train-device cuda:0 \
     --vllm-device cuda:0 \
     --vllm-gpu-memory-utilization 0.4 \

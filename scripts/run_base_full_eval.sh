@@ -24,7 +24,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --eval-samples 0 \
     --final-eval-samples 0 \
     --eval-temperature 0.0 \
-    --eval-max-tokens 512 \
+    --eval-max-tokens 1024 \
     --reward-mode question_only \
     --format-reward-weight 0.1 \
     --answer-reward-weight 1.0 \
@@ -36,4 +36,3 @@ uv run --no-sync python scripts/train_grpo.py \
     --wandb-mode disabled
 
 echo "Base full evaluation output: ${OUTPUT_PATH}"
-
