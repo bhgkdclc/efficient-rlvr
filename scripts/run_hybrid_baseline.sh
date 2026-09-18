@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PERSIST_ROOT="${PERSIST_ROOT:-${REPO_ROOT}/.cloud-cache}"
+MODEL_PATH="${MODEL_PATH:-${PERSIST_ROOT}/models/Qwen2.5-Math-1.5B}"
+RUN_TAG="${RUN_TAG:-seed42_$(date +%Y%m%d_%H%M%S)}"
+OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/hybrid_u50_${RUN_TAG}}"
+SEED="${SEED:-42}"
+
+export HF_HOME="${HF_HOME:-${PERSIST_ROOT}/huggingface}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${PERSIST_ROOT}/uv}"
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
+export TOKENIZERS_PARALLELISM=false
+
+cd "${REPO_ROOT}"
+uv run --no-sync python scripts/train_grpo.py \
+    --model-name-or-path "${MODEL_PATH}" \
+    --output-path "${OUTPUT_PATH}" \
+    --run-name "hybrid-u50-${RUN_TAG}" \
+    --seed "${SEED}" \
+    --sampling-strategy hybrid \
+    --hybrid-uniform-fraction 0.5 \
+    --difficulty-ema-beta 0.5 \
+    --difficulty-coverage-weight 0.0 \
+    --sampling-uniform-epsilon 0.1 \
+    --difficulty-warmup-groups 128 \
+    --reward-mode question_only \
+    --format-reward-weight 0.1 \
+    --answer-reward-weight 1.0 \
+    --zero-variance-epsilon 1e-8 \
+    --loss-type reinforce_with_baseline \
+    --learning-rate 2e-5 \
+    --n-grpo-steps 200 \
+    --rollout-batch-size 64 \
+    --group-size 8 \
+    --train-batch-size 64 \
+    --gradient-accumulation-steps 64 \
+    --sampling-temperature 1.0 \
+    --sampling-max-tokens 512 \
+    --max-rollout-tokens 4000000 \
+    --eval-steps 10 \
+    --checkpoint-steps 0 \
+    --eval-samples 256 \
+    --final-eval-samples 0 \
+    --eval-temperature 0.0 \
+    --eval-max-tokens 512 \
+    --train-device cuda:0 \
+    --vllm-device cuda:0 \
+    --vllm-gpu-memory-utilization 0.4 \
+    --attn-implementation sdpa \
+    --wandb-mode offline \
+    --wandb-project efficient-rlvr
+
+echo "Hybrid sampling baseline (uniform fraction=0.5, seed=${SEED}) output: ${OUTPUT_PATH}"

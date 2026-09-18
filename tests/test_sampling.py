@@ -98,6 +98,43 @@ def test_difficulty_sampler_prefers_model_boundary_without_exploration():
     assert metadata["selected_boundary_score_mean"] == pytest.approx(1.0)
 
 
+def test_hybrid_sampler_uses_explicit_uniform_and_difficulty_strata():
+    sampler = DifficultyAwareSampler(
+        num_prompts=20,
+        ema_beta=0.5,
+        uniform_epsilon=0.0,
+        warmup_groups=0,
+        seed=42,
+    )
+    sampler.update([0, 1, 2], [0.0, 0.5, 1.0], step=0)
+
+    selected, metadata, uniform_count = sampler.sample_hybrid(
+        sample_count=8,
+        uniform_fraction=0.5,
+    )
+
+    assert len(selected) == 8
+    assert len(set(selected)) == 8
+    assert uniform_count == 4
+    assert metadata["hybrid_uniform_groups"] == 4
+    assert metadata["hybrid_difficulty_groups"] == 4
+    assert metadata["hybrid_uniform_fraction"] == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("fraction", [0.0, 1.0])
+def test_hybrid_sampler_rejects_degenerate_fraction(fraction):
+    sampler = DifficultyAwareSampler(
+        num_prompts=20,
+        ema_beta=0.5,
+        uniform_epsilon=0.1,
+        warmup_groups=0,
+        seed=42,
+    )
+
+    with pytest.raises(ValueError, match="uniform_fraction"):
+        sampler.sample_hybrid(8, fraction)
+
+
 def test_coverage_weight_prefers_under_sampled_prompts():
     sampler = DifficultyAwareSampler(
         num_prompts=3,

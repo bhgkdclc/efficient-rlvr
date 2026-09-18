@@ -46,3 +46,19 @@ def test_parser_accepts_difficulty_sampling_configuration():
     assert args.sampling_uniform_epsilon == 0.2
     assert args.difficulty_warmup_groups == 64
     assert args.difficulty_coverage_weight == 0.3
+
+
+def test_parser_accepts_hybrid_sampling_configuration():
+    args = build_parser().parse_args(
+        [
+            "--output-path",
+            "unused",
+            "--sampling-strategy",
+            "hybrid",
+            "--hybrid-uniform-fraction",
+            "0.5",
+        ]
+    )
+
+    assert args.sampling_strategy == "hybrid"
+    assert args.hybrid_uniform_fraction == 0.5

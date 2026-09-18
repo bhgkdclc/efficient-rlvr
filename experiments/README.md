@@ -19,6 +19,9 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 - `scripts/run_difficulty_coverage_baseline.sh`
 - `scripts/run_difficulty_frontloaded_coverage.sh`
 - `scripts/run_replication_seeds.sh`
+- `scripts/run_base_full_eval.sh`
+- `scripts/run_hybrid_smoke.sh`
+- `scripts/run_hybrid_baseline.sh`
 
 Dynamic sampling discards zero-variance groups after generation and resamples
 until the optimizer batch contains the requested number of effective groups.
@@ -47,6 +50,27 @@ fixed-weight ablation. It samples 512 unique groups during warm-up, then sets
 the coverage mixture to zero and uses the unchanged beta=0.5 boundary sampler.
 This tests an early-coverage/late-focus schedule without changing reward,
 loss, rollout budget, or evaluation settings.
+
+Hybrid sampling is the targeted follow-up to the observed efficiency-versus-
+accuracy tradeoff. Each optimizer batch contains an explicit uniform stratum
+and a disjoint difficulty-aware stratum (50/50 by default). The uniform half
+anchors training to the original data distribution; the difficulty half seeks
+more non-zero-variance groups. Metrics separately report each stratum's group
+accuracy, effective-group ratio, and rollout-token cost. The loss, reward,
+group size, and total rollout-token budget remain unchanged.
+
+This is a pre-declared screening experiment, not a hyperparameter sweep. For
+seed 42 it passes only if (1) effective groups per million rollout tokens are
+at least 10% above the three-seed Vanilla mean, (2) full-test Pass@1 is no more
+than one percentage point below the paired Vanilla result, and (3) prompt
+coverage exceeds Fast-EMA Difficulty Sampling. Only a passing seed-42 run is
+replicated on seeds 43 and 44. A failure ends this sampling branch and is
+reported as evidence that maximizing group variance alone is not sufficient.
+
+`run_base_full_eval.sh` evaluates the untouched checkpoint on the complete
+held-out split with exactly the same deterministic decoding settings as final
+training evaluation. It closes the earlier protocol gap where the initial
+checkpoint had only been evaluated on the first 256 examples.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;

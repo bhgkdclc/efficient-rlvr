@@ -84,6 +84,25 @@ ROLLOUT_KEYS = {
     "difficulty_selected_sample_count_mean_after": (
         "difficulty/selected_sample_count_mean_after"
     ),
+    "hybrid_uniform_fraction": "difficulty/hybrid_uniform_fraction",
+    "hybrid_uniform_effective_group_ratio": (
+        "difficulty/hybrid_uniform_effective_group_ratio"
+    ),
+    "hybrid_difficulty_effective_group_ratio": (
+        "difficulty/hybrid_difficulty_effective_group_ratio"
+    ),
+    "hybrid_uniform_group_accuracy_mean": (
+        "difficulty/hybrid_uniform_group_accuracy_mean"
+    ),
+    "hybrid_difficulty_group_accuracy_mean": (
+        "difficulty/hybrid_difficulty_group_accuracy_mean"
+    ),
+    "hybrid_uniform_total_rollout_tokens": (
+        "difficulty/hybrid_uniform_total_rollout_tokens"
+    ),
+    "hybrid_difficulty_total_rollout_tokens": (
+        "difficulty/hybrid_difficulty_total_rollout_tokens"
+    ),
 }
 
 
@@ -499,7 +518,7 @@ def summarize(
     )
 
     difficulty_summary = None
-    if config.get("sampling_strategy") == "difficulty":
+    if config.get("sampling_strategy") in {"difficulty", "hybrid"}:
         def summarize_phase(frame: pd.DataFrame) -> dict | None:
             if frame.empty:
                 return None
@@ -656,6 +675,85 @@ def summarize(
                 else None
             ),
         }
+        if config.get("sampling_strategy") == "hybrid":
+            uniform_groups = int(
+                round(
+                    (
+                        rollouts["attempted_groups"]
+                        * rollouts["hybrid_uniform_fraction"]
+                    ).sum()
+                )
+            )
+            difficulty_groups = int(total_groups - uniform_groups)
+            uniform_tokens = int(
+                rollouts["hybrid_uniform_total_rollout_tokens"].sum()
+            )
+            difficulty_tokens = int(
+                rollouts["hybrid_difficulty_total_rollout_tokens"].sum()
+            )
+            difficulty_summary["hybrid"] = {
+                "configured_uniform_fraction": float(
+                    config.get("hybrid_uniform_fraction", 0.5)
+                ),
+                "uniform_groups": uniform_groups,
+                "difficulty_groups": difficulty_groups,
+                "uniform_effective_group_ratio": float(
+                    np.average(
+                        rollouts["hybrid_uniform_effective_group_ratio"],
+                        weights=(
+                            rollouts["attempted_groups"]
+                            * rollouts["hybrid_uniform_fraction"]
+                        ),
+                    )
+                ),
+                "difficulty_effective_group_ratio": float(
+                    np.average(
+                        rollouts["hybrid_difficulty_effective_group_ratio"],
+                        weights=(
+                            rollouts["attempted_groups"]
+                            * (1.0 - rollouts["hybrid_uniform_fraction"])
+                        ),
+                    )
+                ),
+                "uniform_group_accuracy_mean": float(
+                    rollouts["hybrid_uniform_group_accuracy_mean"].mean()
+                ),
+                "difficulty_group_accuracy_mean": float(
+                    rollouts["hybrid_difficulty_group_accuracy_mean"].mean()
+                ),
+                "uniform_rollout_tokens": uniform_tokens,
+                "difficulty_rollout_tokens": difficulty_tokens,
+                "uniform_effective_groups_per_million_rollout_tokens": (
+                    uniform_groups
+                    * float(
+                        np.average(
+                            rollouts["hybrid_uniform_effective_group_ratio"],
+                            weights=(
+                                rollouts["attempted_groups"]
+                                * rollouts["hybrid_uniform_fraction"]
+                            ),
+                        )
+                    )
+                    / uniform_tokens
+                    * 1e6
+                ),
+                "difficulty_effective_groups_per_million_rollout_tokens": (
+                    difficulty_groups
+                    * float(
+                        np.average(
+                            rollouts[
+                                "hybrid_difficulty_effective_group_ratio"
+                            ],
+                            weights=(
+                                rollouts["attempted_groups"]
+                                * (1.0 - rollouts["hybrid_uniform_fraction"])
+                            ),
+                        )
+                    )
+                    / difficulty_tokens
+                    * 1e6
+                ),
+            }
 
     summary = {
         "run": {

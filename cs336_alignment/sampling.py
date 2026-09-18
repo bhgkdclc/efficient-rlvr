@@ -129,32 +129,11 @@ class DifficultyAwareSampler:
             candidates, weights, sample_count
         )
 
-    def sample(
-        self, sample_count: int
-    ) -> tuple[list[int], dict[str, float | int | bool | None]]:
-        if sample_count <= 0:
-            raise ValueError("sample_count must be positive")
-        if sample_count > self.num_prompts:
-            raise ValueError("sample_count cannot exceed num_prompts")
-
-        observed_before = self.observed_prompt_count
-        selected: list[int] = []
-        warmup_needed = min(
-            sample_count,
-            max(0, self.warmup_groups - observed_before),
-        )
-        if warmup_needed:
-            unseen = [
-                index
-                for index, count in enumerate(self.sample_counts)
-                if count == 0
-            ]
-            selected.extend(self.rng.sample(unseen, warmup_needed))
-
-        remaining = sample_count - len(selected)
-        if remaining:
-            selected.extend(self._difficulty_sample(remaining, set(selected)))
-
+    def _selection_metadata(
+        self,
+        selected: list[int],
+        observed_before: int,
+    ) -> dict[str, float | int | bool | None]:
         seen_selected = [
             index for index in selected if self.ema_accuracy[index] is not None
         ]
@@ -173,7 +152,7 @@ class DifficultyAwareSampler:
             for accuracy in self.ema_accuracy
             if accuracy is not None
         ]
-        metadata: dict[str, float | int | bool | None] = {
+        return {
             "warmup_active": observed_before < self.warmup_groups,
             "observed_prompts_before": observed_before,
             "observed_prompt_ratio_before": observed_before / self.num_prompts,
@@ -191,7 +170,85 @@ class DifficultyAwareSampler:
                 fmean(all_accuracies) if all_accuracies else None
             ),
         }
-        return selected, metadata
+
+    def sample(
+        self,
+        sample_count: int,
+        excluded: set[int] | None = None,
+    ) -> tuple[list[int], dict[str, float | int | bool | None]]:
+        if sample_count <= 0:
+            raise ValueError("sample_count must be positive")
+        excluded = set() if excluded is None else set(excluded)
+        if any(index < 0 or index >= self.num_prompts for index in excluded):
+            raise IndexError("excluded prompt index out of range")
+        if sample_count > self.num_prompts - len(excluded):
+            raise ValueError("sample_count cannot exceed available prompts")
+
+        observed_before = self.observed_prompt_count
+        selected: list[int] = []
+        warmup_needed = min(
+            sample_count,
+            max(0, self.warmup_groups - observed_before),
+        )
+        if warmup_needed:
+            unseen = [
+                index
+                for index, count in enumerate(self.sample_counts)
+                if count == 0 and index not in excluded
+            ]
+            warmup_needed = min(warmup_needed, len(unseen))
+            selected.extend(self.rng.sample(unseen, warmup_needed))
+
+        remaining = sample_count - len(selected)
+        if remaining:
+            selected.extend(
+                self._difficulty_sample(
+                    remaining,
+                    excluded | set(selected),
+                )
+            )
+
+        return selected, self._selection_metadata(selected, observed_before)
+
+    def sample_hybrid(
+        self,
+        sample_count: int,
+        uniform_fraction: float,
+    ) -> tuple[
+        list[int],
+        dict[str, float | int | bool | None],
+        int,
+    ]:
+        """Draw an explicit uniform stratum followed by a difficulty stratum."""
+        if sample_count <= 1:
+            raise ValueError("hybrid sampling requires at least two prompt groups")
+        if sample_count > self.num_prompts:
+            raise ValueError("sample_count cannot exceed num_prompts")
+        if not 0.0 < uniform_fraction < 1.0:
+            raise ValueError("uniform_fraction must be strictly between 0 and 1")
+
+        observed_before = self.observed_prompt_count
+        uniform_count = min(
+            sample_count - 1,
+            max(1, round(sample_count * uniform_fraction)),
+        )
+        uniform_indices = self.rng.sample(
+            range(self.num_prompts), uniform_count
+        )
+        difficulty_indices, _ = self.sample(
+            sample_count - uniform_count,
+            excluded=set(uniform_indices),
+        )
+        selected = uniform_indices + difficulty_indices
+        metadata = self._selection_metadata(selected, observed_before)
+        metadata.update(
+            {
+                "hybrid_uniform_fraction": uniform_count / sample_count,
+                "hybrid_uniform_groups": uniform_count,
+                "hybrid_difficulty_groups": sample_count - uniform_count,
+            }
+        )
+        return selected, metadata, uniform_count
 
     def update(
         self,

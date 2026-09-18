@@ -411,7 +411,7 @@ def train_grpo_experiment(
         )
 
     difficulty_sampler = None
-    if args.sampling_strategy == "difficulty":
+    if args.sampling_strategy in {"difficulty", "hybrid"}:
         difficulty_sampler = DifficultyAwareSampler(
             num_prompts=len(train_data),
             ema_beta=args.difficulty_ema_beta,
@@ -508,6 +508,7 @@ def train_grpo_experiment(
         resample_rounds = 0
         batch_complete = True
         difficulty_metadata: dict[str, Any] = {}
+        hybrid_uniform_group_count = 0
 
         if args.sampling_strategy == "dynamic":
             candidate_indices = list(range(len(train_data)))
@@ -534,10 +535,24 @@ def train_grpo_experiment(
                 ]
                 rollout_dataset = [train_data[index] for index in selected_indices]
                 round_prompt_indices = selected_indices
-            else:
+            elif args.sampling_strategy == "difficulty":
                 assert difficulty_sampler is not None
                 round_prompt_indices, difficulty_metadata = (
                     difficulty_sampler.sample(groups_needed)
+                )
+                rollout_dataset = [
+                    train_data[index] for index in round_prompt_indices
+                ]
+            else:
+                assert args.sampling_strategy == "hybrid"
+                assert difficulty_sampler is not None
+                (
+                    round_prompt_indices,
+                    difficulty_metadata,
+                    hybrid_uniform_group_count,
+                ) = difficulty_sampler.sample_hybrid(
+                    groups_needed,
+                    args.hybrid_uniform_fraction,
                 )
                 rollout_dataset = [
                     train_data[index] for index in round_prompt_indices
@@ -654,6 +669,67 @@ def train_grpo_experiment(
                         ),
                     }
                 )
+                if args.sampling_strategy == "hybrid":
+                    uniform_positions = range(hybrid_uniform_group_count)
+                    difficulty_positions = range(
+                        hybrid_uniform_group_count,
+                        len(round_prompt_indices),
+                    )
+
+                    def source_mean(values, positions):
+                        positions = list(positions)
+                        return (
+                            sum(values[position] for position in positions)
+                            / len(positions)
+                        )
+
+                    group_token_counts = [
+                        rollout_group_token_counts(output) for output in outputs
+                    ]
+
+                    def source_tokens(key, positions):
+                        return sum(
+                            int(group_token_counts[position][key])
+                            for position in positions
+                        )
+
+                    difficulty_metadata.update(
+                        {
+                            "hybrid_uniform_effective_group_ratio": source_mean(
+                                [
+                                    position in effective_index_set
+                                    for position in range(len(round_prompt_indices))
+                                ],
+                                uniform_positions,
+                            ),
+                            "hybrid_difficulty_effective_group_ratio": source_mean(
+                                [
+                                    position in effective_index_set
+                                    for position in range(len(round_prompt_indices))
+                                ],
+                                difficulty_positions,
+                            ),
+                            "hybrid_uniform_group_accuracy_mean": source_mean(
+                                group_accuracies,
+                                uniform_positions,
+                            ),
+                            "hybrid_difficulty_group_accuracy_mean": source_mean(
+                                group_accuracies,
+                                difficulty_positions,
+                            ),
+                            "hybrid_uniform_total_rollout_tokens": source_tokens(
+                                "total_rollout_tokens",
+                                range(hybrid_uniform_group_count),
+                            ),
+                            "hybrid_difficulty_total_rollout_tokens": source_tokens(
+                                "total_rollout_tokens",
+                                range(
+                                    hybrid_uniform_group_count,
+                                    len(round_prompt_indices),
+                                ),
+                            ),
+                        }
+                    )
                 difficulty_sampler.save(
                     Path(args.output_path) / "sampler_state.json"
                 )
@@ -1069,13 +1145,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--sampling-strategy",
-        choices=["random", "dynamic", "difficulty"],
+        choices=["random", "dynamic", "difficulty", "hybrid"],
         default="random",
     )
     parser.add_argument("--difficulty-ema-beta", type=float, default=0.9)
     parser.add_argument("--sampling-uniform-epsilon", type=float, default=0.1)
     parser.add_argument("--difficulty-warmup-groups", type=int, default=128)
     parser.add_argument("--difficulty-coverage-weight", type=float, default=0.0)
+    parser.add_argument("--hybrid-uniform-fraction", type=float, default=0.5)
     parser.add_argument("--n-grpo-steps", type=int, default=200)
     parser.add_argument("--rollout-batch-size", type=int, default=256)
     parser.add_argument("--group-size", type=int, default=8)
