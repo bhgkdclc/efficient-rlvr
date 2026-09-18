@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import random
 from collections.abc import Sequence
 from pathlib import Path
@@ -21,6 +22,7 @@ class DifficultyAwareSampler:
         uniform_epsilon: float,
         warmup_groups: int,
         seed: int,
+        coverage_weight: float = 0.0,
     ) -> None:
         if num_prompts <= 0:
             raise ValueError("num_prompts must be positive")
@@ -30,11 +32,14 @@ class DifficultyAwareSampler:
             raise ValueError("uniform_epsilon must be in [0, 1]")
         if not 0 <= warmup_groups <= num_prompts:
             raise ValueError("warmup_groups must be between 0 and num_prompts")
+        if not 0.0 <= coverage_weight <= 1.0:
+            raise ValueError("coverage_weight must be in [0, 1]")
 
         self.num_prompts = num_prompts
         self.ema_beta = ema_beta
         self.uniform_epsilon = uniform_epsilon
         self.warmup_groups = warmup_groups
+        self.coverage_weight = coverage_weight
         self.rng = random.Random(seed)
         self.ema_accuracy: list[float | None] = [None] * num_prompts
         self.sample_counts = [0] * num_prompts
@@ -43,6 +48,11 @@ class DifficultyAwareSampler:
     @staticmethod
     def boundary_score(success_rate: float) -> float:
         return 4.0 * success_rate * (1.0 - success_rate)
+
+    @staticmethod
+    def coverage_score(sample_count: int) -> float:
+        """Favor unseen and under-sampled prompts without hard filtering."""
+        return 1.0 / math.sqrt(sample_count + 1.0)
 
     @property
     def observed_prompt_count(self) -> int:
@@ -91,15 +101,30 @@ class DifficultyAwareSampler:
             for index in candidates
         ]
         boundary_total = sum(boundary_scores)
-        if boundary_total <= 0.0:
-            weights = [1.0] * len(candidates)
-        else:
-            uniform_probability = 1.0 / len(candidates)
-            weights = [
-                (1.0 - self.uniform_epsilon) * score / boundary_total
-                + self.uniform_epsilon * uniform_probability
-                for score in boundary_scores
-            ]
+        uniform_probability = 1.0 / len(candidates)
+        boundary_probabilities = (
+            [score / boundary_total for score in boundary_scores]
+            if boundary_total > 0.0
+            else [uniform_probability] * len(candidates)
+        )
+        coverage_scores = [
+            self.coverage_score(self.sample_counts[index]) for index in candidates
+        ]
+        coverage_total = sum(coverage_scores)
+        coverage_probabilities = [
+            score / coverage_total for score in coverage_scores
+        ]
+        weights = [
+            (1.0 - self.uniform_epsilon)
+            * (
+                (1.0 - self.coverage_weight) * boundary_probability
+                + self.coverage_weight * coverage_probability
+            )
+            + self.uniform_epsilon * uniform_probability
+            for boundary_probability, coverage_probability in zip(
+                boundary_probabilities, coverage_probabilities
+            )
+        ]
         return self._weighted_sample_without_replacement(
             candidates, weights, sample_count
         )
@@ -139,6 +164,10 @@ class DifficultyAwareSampler:
         selected_scores = [
             self.boundary_score(accuracy) for accuracy in selected_accuracies
         ]
+        selected_counts = [self.sample_counts[index] for index in selected]
+        selected_coverage_scores = [
+            self.coverage_score(count) for count in selected_counts
+        ]
         all_accuracies = [
             float(accuracy)
             for accuracy in self.ema_accuracy
@@ -147,7 +176,11 @@ class DifficultyAwareSampler:
         metadata: dict[str, float | int | bool | None] = {
             "warmup_active": observed_before < self.warmup_groups,
             "observed_prompts_before": observed_before,
+            "observed_prompt_ratio_before": observed_before / self.num_prompts,
             "selected_seen_ratio": len(seen_selected) / len(selected),
+            "selected_unseen_ratio": 1.0 - len(seen_selected) / len(selected),
+            "selected_sample_count_mean_before": fmean(selected_counts),
+            "selected_coverage_score_mean": fmean(selected_coverage_scores),
             "selected_ema_accuracy_mean": (
                 fmean(selected_accuracies) if selected_accuracies else None
             ),
@@ -199,6 +232,7 @@ class DifficultyAwareSampler:
             "num_prompts": self.num_prompts,
             "ema_beta": self.ema_beta,
             "uniform_epsilon": self.uniform_epsilon,
+            "coverage_weight": self.coverage_weight,
             "warmup_groups": self.warmup_groups,
             "observed_prompt_count": self.observed_prompt_count,
             "prompt_states": prompt_states,

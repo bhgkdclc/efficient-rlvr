@@ -15,6 +15,8 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 - `scripts/run_difficulty_smoke.sh`
 - `scripts/run_difficulty_baseline.sh`
 - `scripts/run_difficulty_fast_ema.sh`
+- `scripts/run_difficulty_coverage_smoke.sh`
+- `scripts/run_difficulty_coverage_baseline.sh`
 - `scripts/run_replication_seeds.sh`
 
 Dynamic sampling discards zero-variance groups after generation and resamples
@@ -33,6 +35,11 @@ checkpoint. Set `SEED` to run replications without editing the script.
 `run_replication_seeds.sh` sequentially runs paired Vanilla and Fast-EMA
 replications. With no arguments it runs seeds 43 and 44, writes a separate
 console log for each run, and keeps only each run's final checkpoint.
+
+Coverage-aware Difficulty Sampling adds a normalized inverse-square-root
+sample-count score to the boundary score. A zero coverage weight exactly
+recovers the previous sampler. The default coverage experiment uses weight
+0.3 with beta 0.5 to test the measured efficiency-versus-diversity tradeoff.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;

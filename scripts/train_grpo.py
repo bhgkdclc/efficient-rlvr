@@ -418,6 +418,7 @@ def train_grpo_experiment(
             uniform_epsilon=args.sampling_uniform_epsilon,
             warmup_groups=args.difficulty_warmup_groups,
             seed=args.seed,
+            coverage_weight=args.difficulty_coverage_weight,
         )
 
     stop_strings = ["</answer>"] if args.reward_mode == "r1_zero" else None
@@ -614,6 +615,10 @@ def train_grpo_experiment(
                         "observed_prompts_after": (
                             difficulty_sampler.observed_prompt_count
                         ),
+                        "observed_prompt_ratio_after": (
+                            difficulty_sampler.observed_prompt_count
+                            / difficulty_sampler.num_prompts
+                        ),
                         "selected_group_accuracy_mean": (
                             sum(group_accuracies) / len(group_accuracies)
                         ),
@@ -775,11 +780,14 @@ def train_grpo_experiment(
         )
         if difficulty_sampler is not None:
             logger.info(
-                "difficulty warmup=%s observed=%d selected_seen=%.3f "
+                "difficulty warmup=%s observed=%d coverage=%.3f "
+                "selected_seen=%.3f selected_unseen=%.3f "
                 "selected_ema_accuracy=%s boundary_score=%s",
                 difficulty_metadata["warmup_active"],
                 difficulty_metadata["observed_prompts_after"],
+                difficulty_metadata["observed_prompt_ratio_after"],
                 difficulty_metadata["selected_seen_ratio"],
+                difficulty_metadata["selected_unseen_ratio"],
                 difficulty_metadata["selected_ema_accuracy_mean"],
                 difficulty_metadata["selected_boundary_score_mean"],
             )
@@ -1044,6 +1052,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--difficulty-ema-beta", type=float, default=0.9)
     parser.add_argument("--sampling-uniform-epsilon", type=float, default=0.1)
     parser.add_argument("--difficulty-warmup-groups", type=int, default=128)
+    parser.add_argument("--difficulty-coverage-weight", type=float, default=0.0)
     parser.add_argument("--n-grpo-steps", type=int, default=200)
     parser.add_argument("--rollout-batch-size", type=int, default=256)
     parser.add_argument("--group-size", type=int, default=8)

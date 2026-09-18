@@ -36,6 +36,8 @@ def test_parser_accepts_difficulty_sampling_configuration():
             "0.2",
             "--difficulty-warmup-groups",
             "64",
+            "--difficulty-coverage-weight",
+            "0.3",
         ]
     )
 
@@ -43,3 +45,4 @@ def test_parser_accepts_difficulty_sampling_configuration():
     assert args.difficulty_ema_beta == 0.8
     assert args.sampling_uniform_epsilon == 0.2
     assert args.difficulty_warmup_groups == 64
+    assert args.difficulty_coverage_weight == 0.3

@@ -52,7 +52,17 @@ ROLLOUT_KEYS = {
     "difficulty_warmup_active": "difficulty/warmup_active",
     "difficulty_observed_prompts_before": "difficulty/observed_prompts_before",
     "difficulty_observed_prompts_after": "difficulty/observed_prompts_after",
+    "difficulty_observed_prompt_ratio_after": (
+        "difficulty/observed_prompt_ratio_after"
+    ),
     "difficulty_selected_seen_ratio": "difficulty/selected_seen_ratio",
+    "difficulty_selected_unseen_ratio": "difficulty/selected_unseen_ratio",
+    "difficulty_selected_sample_count_mean_before": (
+        "difficulty/selected_sample_count_mean_before"
+    ),
+    "difficulty_selected_coverage_score_mean": (
+        "difficulty/selected_coverage_score_mean"
+    ),
     "difficulty_selected_ema_accuracy_mean": (
         "difficulty/selected_ema_accuracy_mean"
     ),
@@ -469,6 +479,9 @@ def summarize(
             "ema_beta": float(config.get("difficulty_ema_beta", 0.0)),
             "uniform_epsilon": float(
                 config.get("sampling_uniform_epsilon", 0.0)
+            ),
+            "coverage_weight": float(
+                config.get("difficulty_coverage_weight", 0.0)
             ),
             "observed_prompts": int(
                 rollouts.iloc[-1]["difficulty_observed_prompts_after"]

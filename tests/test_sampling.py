@@ -98,6 +98,38 @@ def test_difficulty_sampler_prefers_model_boundary_without_exploration():
     assert metadata["selected_boundary_score_mean"] == pytest.approx(1.0)
 
 
+def test_coverage_weight_prefers_under_sampled_prompts():
+    sampler = DifficultyAwareSampler(
+        num_prompts=3,
+        ema_beta=0.5,
+        uniform_epsilon=0.0,
+        warmup_groups=0,
+        seed=42,
+        coverage_weight=1.0,
+    )
+    for step in range(10):
+        sampler.update([0], [0.5], step=step)
+    sampler.update([1], [0.5], step=10)
+
+    selected, metadata = sampler.sample(1)
+
+    assert selected == [2]
+    assert metadata["selected_unseen_ratio"] == 1.0
+    assert metadata["selected_sample_count_mean_before"] == 0.0
+
+
+def test_difficulty_sampler_rejects_invalid_coverage_weight():
+    with pytest.raises(ValueError, match="coverage_weight"):
+        DifficultyAwareSampler(
+            num_prompts=3,
+            ema_beta=0.5,
+            uniform_epsilon=0.1,
+            warmup_groups=0,
+            seed=42,
+            coverage_weight=1.1,
+        )
+
+
 def test_difficulty_sampler_state_only_contains_observed_prompts(tmp_path):
     sampler = DifficultyAwareSampler(
         num_prompts=10,
@@ -113,5 +145,6 @@ def test_difficulty_sampler_state_only_contains_observed_prompts(tmp_path):
 
     state = sampler.state_dict()
     assert state["observed_prompt_count"] == 2
+    assert state["coverage_weight"] == 0.0
     assert [item["prompt_index"] for item in state["prompt_states"]] == [3, 7]
     assert state_path.exists()
