@@ -7,6 +7,8 @@ MODEL_PATH="${MODEL_PATH:-${PERSIST_ROOT}/models/Qwen2.5-Math-1.5B}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/vanilla_random_${RUN_TAG}}"
 WANDB_MODE="${WANDB_MODE:-offline}"
+SEED="${SEED:-42}"
+CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
 
 export HF_HOME="${HF_HOME:-${PERSIST_ROOT}/huggingface}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${PERSIST_ROOT}/uv}"
@@ -18,7 +20,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --model-name-or-path "${MODEL_PATH}" \
     --output-path "${OUTPUT_PATH}" \
     --run-name "vanilla-random-${RUN_TAG}" \
-    --seed 42 \
+    --seed "${SEED}" \
     --sampling-strategy random \
     --reward-mode question_only \
     --format-reward-weight 0.1 \
@@ -35,6 +37,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --sampling-max-tokens 512 \
     --max-rollout-tokens 4000000 \
     --eval-steps 10 \
+    --checkpoint-steps "${CHECKPOINT_STEPS}" \
     --eval-samples 256 \
     --final-eval-samples 0 \
     --eval-temperature 0.0 \
@@ -46,4 +49,4 @@ uv run --no-sync python scripts/train_grpo.py \
     --wandb-mode "${WANDB_MODE}" \
     --wandb-project efficient-rlvr
 
-echo "Vanilla baseline output: ${OUTPUT_PATH}"
+echo "Vanilla baseline (seed=${SEED}) output: ${OUTPUT_PATH}"

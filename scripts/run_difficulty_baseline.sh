@@ -7,6 +7,8 @@ MODEL_PATH="${MODEL_PATH:-${PERSIST_ROOT}/models/Qwen2.5-Math-1.5B}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-difficulty}"
 DIFFICULTY_EMA_BETA="${DIFFICULTY_EMA_BETA:-0.9}"
+SEED="${SEED:-42}"
+CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
 OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/${EXPERIMENT_NAME}_${RUN_TAG}}"
 WANDB_MODE="${WANDB_MODE:-offline}"
 
@@ -20,7 +22,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --model-name-or-path "${MODEL_PATH}" \
     --output-path "${OUTPUT_PATH}" \
     --run-name "${EXPERIMENT_NAME}-${RUN_TAG}" \
-    --seed 42 \
+    --seed "${SEED}" \
     --sampling-strategy difficulty \
     --difficulty-ema-beta "${DIFFICULTY_EMA_BETA}" \
     --sampling-uniform-epsilon 0.1 \
@@ -40,6 +42,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --sampling-max-tokens 512 \
     --max-rollout-tokens 4000000 \
     --eval-steps 10 \
+    --checkpoint-steps "${CHECKPOINT_STEPS}" \
     --eval-samples 256 \
     --final-eval-samples 0 \
     --eval-temperature 0.0 \
@@ -51,4 +54,4 @@ uv run --no-sync python scripts/train_grpo.py \
     --wandb-mode "${WANDB_MODE}" \
     --wandb-project efficient-rlvr
 
-echo "Difficulty-aware baseline (EMA beta=${DIFFICULTY_EMA_BETA}) output: ${OUTPUT_PATH}"
+echo "Difficulty-aware baseline (EMA beta=${DIFFICULTY_EMA_BETA}, seed=${SEED}) output: ${OUTPUT_PATH}"

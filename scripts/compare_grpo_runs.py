@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vanilla-dir", type=Path, required=True)
     parser.add_argument("--dynamic-dir", type=Path, required=True)
     parser.add_argument("--difficulty-dir", type=Path)
+    parser.add_argument("--difficulty-beta05-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -42,6 +43,8 @@ def plot_accuracy(
         "Vanilla": "#1f77b4",
         "Dynamic": "#d95f02",
         "Difficulty-Aware": "#2ca02c",
+        "Difficulty beta=0.9": "#2ca02c",
+        "Difficulty beta=0.5": "#9467bd",
     }
     for label, (summary, evaluations) in runs.items():
         fixed = fixed_evaluations(evaluations)
@@ -68,7 +71,7 @@ def plot_accuracy(
     ax.set_xlabel("Cumulative rollout tokens (millions)")
     ax.set_ylabel("Pass@1 / accuracy (%)")
     ax.grid(alpha=0.25)
-    ax.legend(frameon=False, fontsize=8)
+    ax.legend(frameon=False, fontsize=8, ncol=2)
     fig.tight_layout()
     fig.savefig(output_dir / "accuracy_vs_rollout_tokens.png", dpi=180)
     plt.close(fig)
@@ -88,9 +91,11 @@ def plot_efficiency(runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
         "Vanilla": "#1f77b4",
         "Dynamic": "#d95f02",
         "Difficulty-Aware": "#2ca02c",
+        "Difficulty beta=0.9": "#2ca02c",
+        "Difficulty beta=0.5": "#9467bd",
     }
     colors = [color_map[label] for label in labels]
-    fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.2))
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.5))
     axes[0].bar(labels, effective_per_million, color=colors)
     axes[0].set_ylabel("Generated effective groups / 1M tokens")
     axes[0].grid(axis="y", alpha=0.25)
@@ -98,6 +103,8 @@ def plot_efficiency(runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
     axes[1].set_ylabel("Final full-set Pass@1 (%)")
     axes[1].set_ylim(70, 84)
     axes[1].grid(axis="y", alpha=0.25)
+    for axis in axes:
+        axis.tick_params(axis="x", labelrotation=12)
     fig.tight_layout()
     fig.savefig(output_dir / "efficiency_comparison.png", dpi=180)
     plt.close(fig)
@@ -193,8 +200,20 @@ def main() -> None:
     vanilla = load_run(args.vanilla_dir)
     dynamic = load_run(args.dynamic_dir)
     runs = {"Vanilla": vanilla, "Dynamic": dynamic}
+    summaries = {"vanilla": vanilla[0], "dynamic": dynamic[0]}
     if args.difficulty_dir:
-        runs["Difficulty-Aware"] = load_run(args.difficulty_dir)
+        difficulty = load_run(args.difficulty_dir)
+        label = (
+            "Difficulty beta=0.9"
+            if args.difficulty_beta05_dir
+            else "Difficulty-Aware"
+        )
+        runs[label] = difficulty
+        summaries["difficulty"] = difficulty[0]
+    if args.difficulty_beta05_dir:
+        difficulty_beta05 = load_run(args.difficulty_beta05_dir)
+        runs["Difficulty beta=0.5"] = difficulty_beta05
+        summaries["difficulty_beta05"] = difficulty_beta05[0]
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     evaluations = []
@@ -206,10 +225,6 @@ def main() -> None:
         args.output_dir / "evaluation_comparison.csv", index=False
     )
 
-    summaries = {
-        label.lower().replace("-aware", "").replace("-", "_"): summary
-        for label, (summary, _) in runs.items()
-    }
     comparison = build_comparison(summaries)
     with (args.output_dir / "comparison.json").open("w", encoding="utf-8") as file:
         json.dump(comparison, file, indent=2, ensure_ascii=False)

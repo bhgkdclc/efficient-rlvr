@@ -26,6 +26,7 @@ python scripts/compare_grpo_runs.py \
   --vanilla-dir results/<vanilla-run> \
   --dynamic-dir results/<dynamic-run> \
   --difficulty-dir results/<difficulty-run> \
+  --difficulty-beta05-dir results/<difficulty-beta05-run> \
   --output-dir results/<comparison>
 ```
 
@@ -36,3 +37,5 @@ Current reports:
 - `vanilla_vs_dynamic_20260917/report.md`
 - `difficulty_20260918_090256/report.md`
 - `three_way_20260918/report.md`
+- `difficulty_beta05_20260918_094940/report.md`
+- `four_way_20260918/report.md`

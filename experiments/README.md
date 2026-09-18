@@ -26,6 +26,8 @@ post-rollout filtering, so it is directly comparable with the random sampler.
 `run_difficulty_fast_ema.sh` is the focused follow-up to the first
 Difficulty-Aware run. It changes only `difficulty_ema_beta` from 0.9 to 0.5
 to test whether stale prompt histories caused the measured calibration lag.
+It disables intermediate checkpoints by default while retaining the final
+checkpoint. Set `SEED` to run replications without editing the script.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;
