@@ -5,7 +5,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PERSIST_ROOT="${PERSIST_ROOT:-${REPO_ROOT}/.cloud-cache}"
 MODEL_PATH="${MODEL_PATH:-${PERSIST_ROOT}/models/Qwen2.5-Math-1.5B}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
-OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/difficulty_${RUN_TAG}}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-difficulty}"
+DIFFICULTY_EMA_BETA="${DIFFICULTY_EMA_BETA:-0.9}"
+OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/${EXPERIMENT_NAME}_${RUN_TAG}}"
 WANDB_MODE="${WANDB_MODE:-offline}"
 
 export HF_HOME="${HF_HOME:-${PERSIST_ROOT}/huggingface}"
@@ -17,10 +19,10 @@ cd "${REPO_ROOT}"
 uv run --no-sync python scripts/train_grpo.py \
     --model-name-or-path "${MODEL_PATH}" \
     --output-path "${OUTPUT_PATH}" \
-    --run-name "difficulty-${RUN_TAG}" \
+    --run-name "${EXPERIMENT_NAME}-${RUN_TAG}" \
     --seed 42 \
     --sampling-strategy difficulty \
-    --difficulty-ema-beta 0.9 \
+    --difficulty-ema-beta "${DIFFICULTY_EMA_BETA}" \
     --sampling-uniform-epsilon 0.1 \
     --difficulty-warmup-groups 128 \
     --reward-mode question_only \
@@ -49,4 +51,4 @@ uv run --no-sync python scripts/train_grpo.py \
     --wandb-mode "${WANDB_MODE}" \
     --wandb-project efficient-rlvr
 
-echo "Difficulty-aware baseline output: ${OUTPUT_PATH}"
+echo "Difficulty-aware baseline (EMA beta=${DIFFICULTY_EMA_BETA}) output: ${OUTPUT_PATH}"
