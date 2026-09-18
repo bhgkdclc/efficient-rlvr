@@ -30,6 +30,15 @@ python scripts/compare_grpo_runs.py \
   --output-dir results/<comparison>
 ```
 
+Generate a paired multi-seed comparison with:
+
+```bash
+python scripts/compare_multiseed.py \
+  --vanilla-dirs results/<vanilla-seed-42> results/<vanilla-seed-43> results/<vanilla-seed-44> \
+  --difficulty-dirs results/<difficulty-seed-42> results/<difficulty-seed-43> results/<difficulty-seed-44> \
+  --output-dir results/<multiseed-comparison>
+```
+
 Current reports:
 
 - `vanilla_random_20260917_220541/report.md`
@@ -39,3 +48,4 @@ Current reports:
 - `three_way_20260918/report.md`
 - `difficulty_beta05_20260918_094940/report.md`
 - `four_way_20260918/report.md`
+- `multiseed_vanilla_vs_fast_ema_20260918/report.md`

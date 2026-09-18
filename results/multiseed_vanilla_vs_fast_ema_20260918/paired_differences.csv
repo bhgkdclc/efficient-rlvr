@@ -1,0 +1,4 @@
+seed,total_rollout_tokens_difference,attempted_groups_difference,zero_variance_group_ratio_difference,effective_groups_difference,effective_groups_per_million_tokens_difference,last_20_zero_variance_group_ratio_difference,average_response_length_difference,fixed_last_accuracy_difference,full_accuracy_difference,full_correct_difference,full_wrong_answer_difference,full_wrong_format_difference
+42,-17697.0,-88.0,-0.14973520903322135,127.0,32.33837829847806,-0.19375000000000003,24.38105476040505,0.03515625,-0.007581501137225111,-10.0,20.0,-10.0
+43,-11965.0,-80.0,-0.14357945975593034,127.0,32.13178962549304,-0.23749999999999993,22.026682977969756,-0.02734375,-0.029567854435178176,-39.0,-13.0,52.0
+44,9889.0,-104.0,-0.18086548613110665,150.0,36.934810814752666,-0.31875,28.23221173457148,-0.015625,-0.005307050796057533,-7.0,-1.0,8.0
