@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 GSM_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
+DIFFICULTY_SAMPLING_STRATEGIES = {
+    "difficulty",
+    "difficulty_dynamic",
+    "hybrid",
+}
+DYNAMIC_FILTERING_STRATEGIES = {"dynamic", "difficulty_dynamic"}
 
 
 def extract_answer(completion: str) -> str | None:
@@ -68,6 +74,67 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [jsonable(item) for item in value]
     return to_float(value)
+
+
+def aggregate_difficulty_round_metadata(
+    rounds: list[tuple[int, dict[str, Any]]],
+) -> dict[str, Any]:
+    """Combine sampler diagnostics across resampling rounds in one batch."""
+    if not rounds:
+        return {}
+
+    def weighted_mean(key: str, *, seen_only: bool = False) -> float | None:
+        weighted_total = 0.0
+        total_weight = 0.0
+        for group_count, metadata in rounds:
+            value = metadata.get(key)
+            if value is None:
+                continue
+            weight = float(group_count)
+            if seen_only:
+                weight *= float(metadata["selected_seen_ratio"])
+            if weight <= 0.0:
+                continue
+            weighted_total += float(value) * weight
+            total_weight += weight
+        return weighted_total / total_weight if total_weight else None
+
+    first = rounds[0][1]
+    last = rounds[-1][1]
+    combined: dict[str, Any] = {
+        "warmup_active": any(
+            bool(metadata["warmup_active"]) for _, metadata in rounds
+        ),
+        "observed_prompts_before": first["observed_prompts_before"],
+        "observed_prompt_ratio_before": first["observed_prompt_ratio_before"],
+        "observed_prompts_after": last["observed_prompts_after"],
+        "observed_prompt_ratio_after": last["observed_prompt_ratio_after"],
+        "global_seen_ema_accuracy_mean": last[
+            "global_seen_ema_accuracy_mean"
+        ],
+    }
+    for key in (
+        "selected_seen_ratio",
+        "selected_unseen_ratio",
+        "selected_sample_count_mean_before",
+        "selected_coverage_score_mean",
+        "selected_group_accuracy_mean",
+        "selected_sample_count_mean_after",
+    ):
+        combined[key] = weighted_mean(key)
+    for key in (
+        "selected_ema_accuracy_mean",
+        "selected_boundary_score_mean",
+        "selected_seen_group_accuracy_mean",
+        "selected_seen_effective_group_ratio",
+    ):
+        combined[key] = weighted_mean(key, seen_only=True)
+
+    # Hybrid sampling never resamples, so retain its stratum-specific fields.
+    for key, value in last.items():
+        if key.startswith("hybrid_"):
+            combined[key] = value
+    return combined
 
 
 class ExperimentLogger:
@@ -429,7 +496,7 @@ def train_grpo_experiment(
         )
 
     difficulty_sampler = None
-    if args.sampling_strategy in {"difficulty", "hybrid"}:
+    if args.sampling_strategy in DIFFICULTY_SAMPLING_STRATEGIES:
         difficulty_sampler = DifficultyAwareSampler(
             num_prompts=len(train_data),
             ema_beta=args.difficulty_ema_beta,
@@ -526,7 +593,9 @@ def train_grpo_experiment(
         resample_rounds = 0
         batch_complete = True
         difficulty_metadata: dict[str, Any] = {}
+        difficulty_round_metadata: list[tuple[int, dict[str, Any]]] = []
         hybrid_uniform_group_count = 0
+        attempted_prompt_indices: set[int] = set()
 
         if args.sampling_strategy == "dynamic":
             candidate_indices = list(range(len(train_data)))
@@ -555,9 +624,27 @@ def train_grpo_experiment(
                 round_prompt_indices = selected_indices
             elif args.sampling_strategy == "difficulty":
                 assert difficulty_sampler is not None
-                round_prompt_indices, difficulty_metadata = (
+                round_prompt_indices, round_difficulty_metadata = (
                     difficulty_sampler.sample(groups_needed)
                 )
+                rollout_dataset = [
+                    train_data[index] for index in round_prompt_indices
+                ]
+            elif args.sampling_strategy == "difficulty_dynamic":
+                assert difficulty_sampler is not None
+                available_prompts = len(train_data) - len(attempted_prompt_indices)
+                if groups_needed > available_prompts:
+                    raise RuntimeError(
+                        "difficulty_dynamic sampling exhausted the prompt pool before "
+                        "collecting a complete effective batch"
+                    )
+                round_prompt_indices, round_difficulty_metadata = (
+                    difficulty_sampler.sample(
+                        groups_needed,
+                        excluded=attempted_prompt_indices,
+                    )
+                )
+                attempted_prompt_indices.update(round_prompt_indices)
                 rollout_dataset = [
                     train_data[index] for index in round_prompt_indices
                 ]
@@ -566,7 +653,7 @@ def train_grpo_experiment(
                 assert difficulty_sampler is not None
                 (
                     round_prompt_indices,
-                    difficulty_metadata,
+                    round_difficulty_metadata,
                     hybrid_uniform_group_count,
                 ) = difficulty_sampler.sample_hybrid(
                     groups_needed,
@@ -652,7 +739,7 @@ def train_grpo_experiment(
                     group_accuracies,
                     step=grpo_step,
                 )
-                difficulty_metadata.update(
+                round_difficulty_metadata.update(
                     {
                         "observed_prompts_after": (
                             difficulty_sampler.observed_prompt_count
@@ -711,7 +798,7 @@ def train_grpo_experiment(
                             for position in positions
                         )
 
-                    difficulty_metadata.update(
+                    round_difficulty_metadata.update(
                         {
                             "hybrid_uniform_effective_group_ratio": source_mean(
                                 [
@@ -748,11 +835,14 @@ def train_grpo_experiment(
                             ),
                         }
                     )
+                difficulty_round_metadata.append(
+                    (len(round_prompt_indices), round_difficulty_metadata)
+                )
                 difficulty_sampler.save(
                     Path(args.output_path) / "sampler_state.json"
                 )
 
-            if args.sampling_strategy != "dynamic":
+            if args.sampling_strategy not in DYNAMIC_FILTERING_STRATEGIES:
                 accepted_indices = list(range(len(outputs)))
             else:
                 accepted_indices = effective_indices
@@ -782,7 +872,7 @@ def train_grpo_experiment(
                         discarded_groups * args.group_size,
                     )
 
-            if args.sampling_strategy != "dynamic":
+            if args.sampling_strategy not in DYNAMIC_FILTERING_STRATEGIES:
                 break
             if accepted_groups < prompts_per_rollout_batch:
                 resample_rounds += 1
@@ -792,6 +882,10 @@ def train_grpo_experiment(
                 ):
                     batch_complete = False
                     break
+
+        difficulty_metadata = aggregate_difficulty_round_metadata(
+            difficulty_round_metadata
+        )
 
         _, _, rollout_metadata = compute_group_normalized_rewards(
             reward_fn,
@@ -1163,7 +1257,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--sampling-strategy",
-        choices=["random", "dynamic", "difficulty", "hybrid"],
+        choices=[
+            "random",
+            "dynamic",
+            "difficulty",
+            "difficulty_dynamic",
+            "hybrid",
+        ],
         default="random",
     )
     parser.add_argument("--difficulty-ema-beta", type=float, default=0.9)

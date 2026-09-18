@@ -6,6 +6,7 @@ PERSIST_ROOT="${PERSIST_ROOT:-${REPO_ROOT}/.cloud-cache}"
 MODEL_PATH="${MODEL_PATH:-${PERSIST_ROOT}/models/Qwen2.5-Math-1.5B}"
 RUN_TAG="${RUN_TAG:-$(date +%Y%m%d_%H%M%S)}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-difficulty}"
+SAMPLING_STRATEGY="${SAMPLING_STRATEGY:-difficulty}"
 DIFFICULTY_EMA_BETA="${DIFFICULTY_EMA_BETA:-0.9}"
 DIFFICULTY_COVERAGE_WEIGHT="${DIFFICULTY_COVERAGE_WEIGHT:-0.0}"
 SAMPLING_UNIFORM_EPSILON="${SAMPLING_UNIFORM_EPSILON:-0.1}"
@@ -26,7 +27,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --output-path "${OUTPUT_PATH}" \
     --run-name "${EXPERIMENT_NAME}-${RUN_TAG}" \
     --seed "${SEED}" \
-    --sampling-strategy difficulty \
+    --sampling-strategy "${SAMPLING_STRATEGY}" \
     --difficulty-ema-beta "${DIFFICULTY_EMA_BETA}" \
     --difficulty-coverage-weight "${DIFFICULTY_COVERAGE_WEIGHT}" \
     --sampling-uniform-epsilon "${SAMPLING_UNIFORM_EPSILON}" \
@@ -58,4 +59,4 @@ uv run --no-sync python scripts/train_grpo.py \
     --wandb-mode "${WANDB_MODE}" \
     --wandb-project efficient-rlvr
 
-echo "Difficulty-aware baseline (EMA beta=${DIFFICULTY_EMA_BETA}, coverage weight=${DIFFICULTY_COVERAGE_WEIGHT}, seed=${SEED}) output: ${OUTPUT_PATH}"
+echo "Difficulty-aware baseline (strategy=${SAMPLING_STRATEGY}, EMA beta=${DIFFICULTY_EMA_BETA}, coverage weight=${DIFFICULTY_COVERAGE_WEIGHT}, seed=${SEED}) output: ${OUTPUT_PATH}"

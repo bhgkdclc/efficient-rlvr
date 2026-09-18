@@ -524,7 +524,11 @@ def summarize(
     )
 
     difficulty_summary = None
-    if config.get("sampling_strategy") in {"difficulty", "hybrid"}:
+    if config.get("sampling_strategy") in {
+        "difficulty",
+        "difficulty_dynamic",
+        "hybrid",
+    }:
         def summarize_phase(frame: pd.DataFrame) -> dict | None:
             if frame.empty:
                 return None
@@ -871,8 +875,9 @@ def summarize(
         "notes": [
             "Intermediate and initial accuracy use the fixed evaluation subset; the final full evaluation is not directly comparable.",
             (
-                "Exact discarded token cost comes from per-group Dynamic Sampling logs."
-                if config.get("sampling_strategy") == "dynamic"
+                "Exact discarded token cost comes from per-group dynamic-filtering logs."
+                if config.get("sampling_strategy")
+                in {"dynamic", "difficulty_dynamic"}
                 else "Estimated zero-variance token cost weights each batch token count by its zero-variance group ratio; per-group token lengths were not logged."
             ),
         ],

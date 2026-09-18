@@ -98,6 +98,21 @@ def test_difficulty_sampler_prefers_model_boundary_without_exploration():
     assert metadata["selected_boundary_score_mean"] == pytest.approx(1.0)
 
 
+def test_difficulty_sampler_excludes_prompts_already_attempted_in_batch():
+    sampler = DifficultyAwareSampler(
+        num_prompts=4,
+        ema_beta=0.5,
+        uniform_epsilon=0.0,
+        warmup_groups=0,
+        seed=42,
+    )
+    sampler.update([0, 1, 2, 3], [0.5, 0.5, 0.5, 0.5], step=0)
+
+    selected, _ = sampler.sample(2, excluded={0, 1})
+
+    assert set(selected) == {2, 3}
+
+
 def test_hybrid_sampler_uses_explicit_uniform_and_difficulty_strata():
     sampler = DifficultyAwareSampler(
         num_prompts=20,

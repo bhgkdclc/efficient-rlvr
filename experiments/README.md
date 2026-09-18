@@ -15,6 +15,8 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 - `scripts/run_difficulty_smoke.sh`
 - `scripts/run_difficulty_baseline.sh`
 - `scripts/run_difficulty_fast_ema.sh`
+- `scripts/run_difficulty_dynamic_smoke.sh`
+- `scripts/run_difficulty_dynamic_baseline.sh`
 - `scripts/run_difficulty_coverage_smoke.sh`
 - `scripts/run_difficulty_coverage_baseline.sh`
 - `scripts/run_difficulty_frontloaded_coverage.sh`
@@ -29,6 +31,17 @@ Its logs include the token cost of every discarded group. Difficulty-aware
 sampling uses an EMA of per-prompt answer accuracy, prioritizes prompts using
 `4p(1-p)`, and retains configurable uniform exploration. It does not apply
 post-rollout filtering, so it is directly comparable with the random sampler.
+
+Difficulty-Dynamic sampling composes these mechanisms without changing the
+loss: Fast-EMA selects prompts before generation, and zero-variance groups are
+then rejected until a complete effective optimizer batch is available. Prompt
+indices are not reused within one optimizer batch, and every attempted group
+still counts toward the rollout-token budget. Its seed-42 screening criteria
+are registered before running: versus Dynamic, reduce the discarded-token
+ratio by at least 15% relatively and improve optimized effective groups per
+million rollout tokens by at least 10%; final Pass@1 should be no more than one
+point below the paired seed-42 Fast-EMA run. Only a passing efficiency screen
+is replicated on seeds 43 and 44.
 
 `run_difficulty_fast_ema.sh` is the focused follow-up to the first
 Difficulty-Aware run. It changes only `difficulty_ema_beta` from 0.9 to 0.5

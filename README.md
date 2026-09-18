@@ -83,6 +83,8 @@ export PERSIST_ROOT=/root/autodl-tmp/efficient-rlvr-cache
 bash scripts/run_vanilla_smoke.sh
 bash scripts/run_vanilla_baseline.sh
 bash scripts/run_difficulty_fast_ema.sh
+bash scripts/run_difficulty_dynamic_smoke.sh
+bash scripts/run_difficulty_dynamic_baseline.sh
 ```
 
 Run the paired replications with:
