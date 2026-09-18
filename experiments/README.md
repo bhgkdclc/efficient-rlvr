@@ -15,6 +15,7 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 - `scripts/run_difficulty_smoke.sh`
 - `scripts/run_difficulty_baseline.sh`
 - `scripts/run_difficulty_fast_ema.sh`
+- `scripts/run_replication_seeds.sh`
 
 Dynamic sampling discards zero-variance groups after generation and resamples
 until the optimizer batch contains the requested number of effective groups.
@@ -28,6 +29,10 @@ Difficulty-Aware run. It changes only `difficulty_ema_beta` from 0.9 to 0.5
 to test whether stale prompt histories caused the measured calibration lag.
 It disables intermediate checkpoints by default while retaining the final
 checkpoint. Set `SEED` to run replications without editing the script.
+
+`run_replication_seeds.sh` sequentially runs paired Vanilla and Fast-EMA
+replications. With no arguments it runs seeds 43 and 44, writes a separate
+console log for each run, and keeps only each run's final checkpoint.
 
 After a run, generate standardized summaries, CSV files, and plots with
 `scripts/analyze_grpo_run.py`. Reviewable outputs belong under `results/`;
