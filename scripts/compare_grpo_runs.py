@@ -20,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--difficulty-dir", type=Path)
     parser.add_argument("--difficulty-beta05-dir", type=Path)
     parser.add_argument("--difficulty-coverage-dir", type=Path)
+    parser.add_argument("--difficulty-frontloaded-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -39,7 +40,9 @@ def fixed_evaluations(frame: pd.DataFrame) -> pd.DataFrame:
 def plot_accuracy(
     runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
 ) -> None:
-    fig, ax = plt.subplots(figsize=(7.4, 4.6))
+    fig, ax = plt.subplots(
+        figsize=(8.8, 5.2) if len(runs) > 5 else (7.4, 4.6)
+    )
     colors = {
         "Vanilla": "#1f77b4",
         "Dynamic": "#d95f02",
@@ -47,6 +50,7 @@ def plot_accuracy(
         "Difficulty beta=0.9": "#2ca02c",
         "Difficulty beta=0.5": "#9467bd",
         "Difficulty coverage=0.3": "#8c564b",
+        "Front-loaded 512": "#e377c2",
     }
     for label, (summary, evaluations) in runs.items():
         fixed = fixed_evaluations(evaluations)
@@ -73,7 +77,7 @@ def plot_accuracy(
     ax.set_xlabel("Cumulative rollout tokens (millions)")
     ax.set_ylabel("Pass@1 / accuracy (%)")
     ax.grid(alpha=0.25)
-    ax.legend(frameon=False, fontsize=8, ncol=2)
+    ax.legend(frameon=False, fontsize=8, ncol=3 if len(runs) > 5 else 2)
     fig.tight_layout()
     fig.savefig(output_dir / "accuracy_vs_rollout_tokens.png", dpi=180)
     plt.close(fig)
@@ -96,9 +100,12 @@ def plot_efficiency(runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
         "Difficulty beta=0.9": "#2ca02c",
         "Difficulty beta=0.5": "#9467bd",
         "Difficulty coverage=0.3": "#8c564b",
+        "Front-loaded 512": "#e377c2",
     }
     colors = [color_map[label] for label in labels]
-    fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.5))
+    fig, axes = plt.subplots(
+        1, 2, figsize=(12.2, 4.8) if len(runs) > 5 else (10.5, 4.5)
+    )
     axes[0].bar(labels, effective_per_million, color=colors)
     axes[0].set_ylabel("Generated effective groups / 1M tokens")
     axes[0].grid(axis="y", alpha=0.25)
@@ -221,6 +228,10 @@ def main() -> None:
         difficulty_coverage = load_run(args.difficulty_coverage_dir)
         runs["Difficulty coverage=0.3"] = difficulty_coverage
         summaries["difficulty_coverage"] = difficulty_coverage[0]
+    if args.difficulty_frontloaded_dir:
+        difficulty_frontloaded = load_run(args.difficulty_frontloaded_dir)
+        runs["Front-loaded 512"] = difficulty_frontloaded
+        summaries["difficulty_frontloaded"] = difficulty_frontloaded[0]
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     evaluations = []

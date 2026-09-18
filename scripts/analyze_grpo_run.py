@@ -500,6 +500,52 @@ def summarize(
 
     difficulty_summary = None
     if config.get("sampling_strategy") == "difficulty":
+        def summarize_phase(frame: pd.DataFrame) -> dict | None:
+            if frame.empty:
+                return None
+            phase_weights = frame["attempted_groups"].astype(float)
+            phase_groups = int(phase_weights.sum())
+            phase_tokens = int(frame["total_rollout_tokens"].sum())
+            phase_effective_groups = int(
+                round((frame["effective_group_ratio"] * phase_weights).sum())
+            )
+            phase_zero_tokens = float(
+                (
+                    frame["total_rollout_tokens"]
+                    * frame["zero_variance_group_ratio"]
+                ).sum()
+            )
+            return {
+                "steps": int(len(frame)),
+                "groups": phase_groups,
+                "rollout_tokens": phase_tokens,
+                "zero_variance_group_ratio": float(
+                    np.average(
+                        frame["zero_variance_group_ratio"],
+                        weights=phase_weights,
+                    )
+                ),
+                "effective_groups": phase_effective_groups,
+                "effective_groups_per_million_rollout_tokens": (
+                    phase_effective_groups / phase_tokens * 1e6
+                ),
+                "estimated_zero_variance_token_ratio": (
+                    phase_zero_tokens / phase_tokens
+                ),
+                "answer_reward_mean": float(
+                    np.average(frame["answer_reward_mean"], weights=phase_weights)
+                ),
+                "format_reward_mean": float(
+                    np.average(frame["format_reward_mean"], weights=phase_weights)
+                ),
+                "average_response_length": float(
+                    np.average(
+                        frame["average_response_length"], weights=phase_weights
+                    )
+                ),
+            }
+
+        warmup = rollouts[rollouts["difficulty_warmup_active"].astype(bool)]
         post_warmup = rollouts[~rollouts["difficulty_warmup_active"].astype(bool)]
         has_seen_accuracy = (
             "difficulty_selected_seen_group_accuracy_mean" in post_warmup
@@ -552,6 +598,10 @@ def summarize(
             "coverage_weight": float(
                 config.get("difficulty_coverage_weight", 0.0)
             ),
+            "phase_metrics": {
+                "warmup": summarize_phase(warmup),
+                "post_warmup": summarize_phase(post_warmup),
+            },
             "observed_prompts": int(
                 rollouts.iloc[-1]["difficulty_observed_prompts_after"]
             ),

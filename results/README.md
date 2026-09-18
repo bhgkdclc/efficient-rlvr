@@ -28,6 +28,7 @@ python scripts/compare_grpo_runs.py \
   --difficulty-dir results/<difficulty-run> \
   --difficulty-beta05-dir results/<difficulty-beta05-run> \
   --difficulty-coverage-dir results/<difficulty-coverage-run> \
+  --difficulty-frontloaded-dir results/<difficulty-frontloaded-run> \
   --output-dir results/<comparison>
 ```
 
@@ -52,3 +53,5 @@ Current reports:
 - `multiseed_vanilla_vs_fast_ema_20260918/report.md`
 - `difficulty_coverage_w03_20260918_135914/report.md`
 - `coverage_ablation_seed42_20260918/report.md`
+- `difficulty_frontloaded_coverage_seed42_20260918_144542/report.md`
+- `coverage_schedule_ablation_seed42_20260918/report.md`
