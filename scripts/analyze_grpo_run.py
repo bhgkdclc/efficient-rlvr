@@ -49,6 +49,25 @@ ROLLOUT_KEYS = {
     "cumulative_discarded_total_rollout_tokens": (
         "sampling/cumulative_discarded_total_rollout_tokens"
     ),
+    "difficulty_warmup_active": "difficulty/warmup_active",
+    "difficulty_observed_prompts_before": "difficulty/observed_prompts_before",
+    "difficulty_observed_prompts_after": "difficulty/observed_prompts_after",
+    "difficulty_selected_seen_ratio": "difficulty/selected_seen_ratio",
+    "difficulty_selected_ema_accuracy_mean": (
+        "difficulty/selected_ema_accuracy_mean"
+    ),
+    "difficulty_selected_boundary_score_mean": (
+        "difficulty/selected_boundary_score_mean"
+    ),
+    "difficulty_global_seen_ema_accuracy_mean": (
+        "difficulty/global_seen_ema_accuracy_mean"
+    ),
+    "difficulty_selected_group_accuracy_mean": (
+        "difficulty/selected_group_accuracy_mean"
+    ),
+    "difficulty_selected_sample_count_mean_after": (
+        "difficulty/selected_sample_count_mean_after"
+    ),
 }
 
 
@@ -56,6 +75,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("metrics", type=Path, help="Path to metrics.jsonl")
     parser.add_argument("--config", type=Path, help="Optional config.json")
+    parser.add_argument(
+        "--sampler-state",
+        type=Path,
+        help="Optional DifficultyAwareSampler state JSON",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--rolling-window", type=int, default=10)
     return parser.parse_args()
@@ -226,6 +250,68 @@ def save_dynamics_plot(
     plt.close(fig)
 
 
+def save_difficulty_calibration_plot(
+    rollouts: pd.DataFrame,
+    output_dir: Path,
+    rolling_window: int,
+) -> None:
+    if (
+        "difficulty_selected_ema_accuracy_mean" not in rollouts
+        or rollouts["difficulty_selected_ema_accuracy_mean"].isna().all()
+    ):
+        return
+    smooth = rollouts.select_dtypes(include=[np.number]).rolling(
+        rolling_window, min_periods=1
+    ).mean()
+    step = rollouts["grpo_step"]
+    post_warmup = rollouts[
+        ~rollouts["difficulty_warmup_active"].astype(bool)
+    ]
+    warmup_end = int(post_warmup.iloc[0]["grpo_step"])
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.2), sharex=True)
+    axes[0].plot(
+        step,
+        smooth["difficulty_selected_ema_accuracy_mean"],
+        label="Historical EMA prediction",
+    )
+    axes[0].plot(
+        step,
+        smooth["difficulty_selected_group_accuracy_mean"],
+        label="Observed group accuracy",
+    )
+    axes[0].set_ylabel("Accuracy")
+    axes[0].legend(frameon=False, fontsize=8)
+
+    axes[1].plot(
+        step,
+        smooth["difficulty_selected_boundary_score_mean"],
+        label="Predicted boundary score",
+    )
+    axes[1].plot(
+        step,
+        smooth["effective_group_ratio"],
+        label="Observed effective ratio",
+    )
+    axes[1].set_ylabel("Score / ratio")
+    axes[1].legend(frameon=False, fontsize=8)
+    for axis in axes:
+        axis.axvline(
+            warmup_end,
+            color="black",
+            linestyle="--",
+            alpha=0.5,
+            label="Warm-up end",
+        )
+        axis.set_xlabel("GRPO step")
+        axis.set_ylim(0, 1.05)
+        axis.grid(alpha=0.25)
+    fig.suptitle(f"Difficulty sampler calibration ({rolling_window}-step mean)")
+    fig.tight_layout()
+    fig.savefig(output_dir / "difficulty_calibration.png", dpi=180)
+    plt.close(fig)
+
+
 def summarize(
     rollouts: pd.DataFrame,
     optimizer: pd.DataFrame,
@@ -368,6 +454,64 @@ def summarize(
         )[0, 1]
     )
 
+    difficulty_summary = None
+    if config.get("sampling_strategy") == "difficulty":
+        post_warmup = rollouts[~rollouts["difficulty_warmup_active"].astype(bool)]
+        calibrated = post_warmup[
+            (post_warmup["difficulty_selected_seen_ratio"] == 1.0)
+            & post_warmup["difficulty_selected_ema_accuracy_mean"].notna()
+        ]
+        predicted_accuracy = calibrated[
+            "difficulty_selected_ema_accuracy_mean"
+        ]
+        difficulty_summary = {
+            "warmup_groups": int(config.get("difficulty_warmup_groups", 0)),
+            "ema_beta": float(config.get("difficulty_ema_beta", 0.0)),
+            "uniform_epsilon": float(
+                config.get("sampling_uniform_epsilon", 0.0)
+            ),
+            "observed_prompts": int(
+                rollouts.iloc[-1]["difficulty_observed_prompts_after"]
+            ),
+            "dataset_prompt_coverage": (
+                float(
+                    rollouts.iloc[-1]["difficulty_observed_prompts_after"]
+                    / int(config["train_samples"])
+                )
+                if int(config.get("train_samples", 0)) > 0
+                else None
+            ),
+            "post_warmup_selected_seen_ratio": float(
+                post_warmup["difficulty_selected_seen_ratio"].mean()
+            ),
+            "post_warmup_predicted_accuracy_mean": float(
+                predicted_accuracy.mean()
+            ),
+            "post_warmup_observed_group_accuracy_mean": float(
+                calibrated["difficulty_selected_group_accuracy_mean"].mean()
+            ),
+            "post_warmup_accuracy_calibration_gap": float(
+                (
+                    calibrated["difficulty_selected_group_accuracy_mean"]
+                    - calibrated["difficulty_selected_ema_accuracy_mean"]
+                ).mean()
+            ),
+            "boundary_score_vs_effective_ratio_pearson_r": float(
+                np.corrcoef(
+                    calibrated["difficulty_selected_boundary_score_mean"],
+                    calibrated["effective_group_ratio"],
+                )[0, 1]
+            ),
+            "last_20_predicted_accuracy_mean": float(
+                predicted_accuracy.tail(20).mean()
+            ),
+            "last_20_observed_group_accuracy_mean": float(
+                calibrated["difficulty_selected_group_accuracy_mean"]
+                .tail(20)
+                .mean()
+            ),
+        }
+
     summary = {
         "run": {
             "git_commit": config.get("git_commit"),
@@ -447,11 +591,12 @@ def summarize(
             "step_vs_zero_variance_pearson_r": zero_trend_correlation,
             "window_means": window_summary,
         },
+        "difficulty_sampler": difficulty_summary,
         "notes": [
             "Intermediate and initial accuracy use the fixed evaluation subset; the final full evaluation is not directly comparable.",
             (
                 "Exact discarded token cost comes from per-group Dynamic Sampling logs."
-                if exact_discarded_tokens is not None
+                if config.get("sampling_strategy") == "dynamic"
                 else "Estimated zero-variance token cost weights each batch token count by its zero-variance group ratio; per-group token lengths were not logged."
             ),
         ],
@@ -481,6 +626,31 @@ def main() -> None:
     evaluations.to_csv(args.output_dir / "evaluation_metrics.csv", index=False)
 
     summary = summarize(rollouts, optimizer, evaluations, config)
+    if args.sampler_state:
+        with args.sampler_state.open(encoding="utf-8") as file:
+            sampler_state = json.load(file)
+        counts = np.array(
+            [item["sample_count"] for item in sampler_state["prompt_states"]]
+        )
+        ema_accuracy = np.array(
+            [item["ema_accuracy"] for item in sampler_state["prompt_states"]]
+        )
+        summary["difficulty_sampler"].update(
+            {
+                "dataset_prompt_coverage": (
+                    sampler_state["observed_prompt_count"]
+                    / sampler_state["num_prompts"]
+                ),
+                "total_prompt_group_selections": int(counts.sum()),
+                "sample_count_mean": float(counts.mean()),
+                "sample_count_median": float(np.median(counts)),
+                "sample_count_p90": float(np.quantile(counts, 0.9)),
+                "sample_count_max": int(counts.max()),
+                "final_prompt_ema_accuracy_mean": float(ema_accuracy.mean()),
+                "prompts_with_zero_ema_accuracy": int((ema_accuracy == 0).sum()),
+                "prompts_with_one_ema_accuracy": int((ema_accuracy == 1).sum()),
+            }
+        )
     with (args.output_dir / "summary.json").open("w", encoding="utf-8") as file:
         json.dump(summary, file, indent=2, ensure_ascii=False)
 
@@ -488,6 +658,9 @@ def main() -> None:
     save_accuracy_plots(evaluations, args.output_dir, comparable_count)
     save_group_plot(rollouts, args.output_dir, args.rolling_window)
     save_dynamics_plot(rollouts, optimizer, args.output_dir, args.rolling_window)
+    save_difficulty_calibration_plot(
+        rollouts, args.output_dir, args.rolling_window
+    )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 

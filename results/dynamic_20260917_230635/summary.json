@@ -126,6 +126,7 @@
       }
     }
   },
+  "difficulty_sampler": null,
   "notes": [
     "Intermediate and initial accuracy use the fixed evaluation subset; the final full evaluation is not directly comparable.",
     "Exact discarded token cost comes from per-group Dynamic Sampling logs."

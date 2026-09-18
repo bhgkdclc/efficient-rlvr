@@ -136,6 +136,7 @@
       }
     }
   },
+  "difficulty_sampler": null,
   "notes": [
     "Intermediate and initial accuracy use the fixed evaluation subset; the final full evaluation is not directly comparable.",
     "Estimated zero-variance token cost weights each batch token count by its zero-variance group ratio; per-group token lengths were not logged."

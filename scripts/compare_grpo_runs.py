@@ -1,4 +1,4 @@
-"""Compare Vanilla and Dynamic GRPO runs under a rollout-token budget."""
+"""Compare GRPO sampling strategies under a rollout-token budget."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--vanilla-dir", type=Path, required=True)
     parser.add_argument("--dynamic-dir", type=Path, required=True)
+    parser.add_argument("--difficulty-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -37,7 +38,11 @@ def plot_accuracy(
     runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
 ) -> None:
     fig, ax = plt.subplots(figsize=(7.4, 4.6))
-    colors = {"Vanilla": "#1f77b4", "Dynamic": "#d95f02"}
+    colors = {
+        "Vanilla": "#1f77b4",
+        "Dynamic": "#d95f02",
+        "Difficulty-Aware": "#2ca02c",
+    }
     for label, (summary, evaluations) in runs.items():
         fixed = fixed_evaluations(evaluations)
         ax.plot(
@@ -79,7 +84,12 @@ def plot_efficiency(runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
         runs[label][0]["final_full_evaluation"]["accuracy"] * 100
         for label in labels
     ]
-    colors = ["#1f77b4", "#d95f02"]
+    color_map = {
+        "Vanilla": "#1f77b4",
+        "Dynamic": "#d95f02",
+        "Difficulty-Aware": "#2ca02c",
+    }
+    colors = [color_map[label] for label in labels]
     fig, axes = plt.subplots(1, 2, figsize=(8.6, 4.2))
     axes[0].bar(labels, effective_per_million, color=colors)
     axes[0].set_ylabel("Generated effective groups / 1M tokens")
@@ -93,83 +103,86 @@ def plot_efficiency(runs: dict[str, tuple[dict, pd.DataFrame]], output_dir: Path
     plt.close(fig)
 
 
-def build_comparison(vanilla: dict, dynamic: dict) -> dict:
+def build_comparison(summaries: dict[str, dict]) -> dict:
     target_comparison = {}
-    vanilla_targets = vanilla["comparable_evaluation"]["tokens_to_target_accuracy"]
-    dynamic_targets = dynamic["comparable_evaluation"]["tokens_to_target_accuracy"]
-    for target in sorted(set(vanilla_targets) | set(dynamic_targets)):
+    target_sets = [
+        set(summary["comparable_evaluation"]["tokens_to_target_accuracy"])
+        for summary in summaries.values()
+    ]
+    vanilla_targets = summaries["vanilla"]["comparable_evaluation"][
+        "tokens_to_target_accuracy"
+    ]
+    for target in sorted(set().union(*target_sets)):
         vanilla_result = vanilla_targets.get(target)
-        dynamic_result = dynamic_targets.get(target)
-        target_comparison[target] = {
-            "vanilla": vanilla_result,
-            "dynamic": dynamic_result,
-            "dynamic_to_vanilla_token_ratio": (
-                dynamic_result["cumulative_rollout_tokens"]
+        target_comparison[target] = {}
+        for strategy, summary in summaries.items():
+            result = summary["comparable_evaluation"][
+                "tokens_to_target_accuracy"
+            ].get(target)
+            target_comparison[target][strategy] = result
+            target_comparison[target][f"{strategy}_to_vanilla_token_ratio"] = (
+                result["cumulative_rollout_tokens"]
                 / vanilla_result["cumulative_rollout_tokens"]
-                if vanilla_result and dynamic_result
+                if result and vanilla_result
                 else None
-            ),
-        }
+            )
 
-    vanilla_accuracy = vanilla["final_full_evaluation"]["accuracy"]
-    dynamic_accuracy = dynamic["final_full_evaluation"]["accuracy"]
-    vanilla_effective = vanilla["groups"][
-        "optimized_effective_groups_per_million_rollout_tokens"
-    ]
-    dynamic_effective = dynamic["groups"][
-        "optimized_effective_groups_per_million_rollout_tokens"
-    ]
+    vanilla_accuracy = summaries["vanilla"]["final_full_evaluation"]["accuracy"]
     return {
         "budget": {
-            "vanilla_rollout_tokens": vanilla["rollout_cost"][
-                "total_rollout_tokens"
-            ],
-            "dynamic_rollout_tokens": dynamic["rollout_cost"][
-                "total_rollout_tokens"
-            ],
+            strategy: summary["rollout_cost"]["total_rollout_tokens"]
+            for strategy, summary in summaries.items()
         },
         "optimization": {
-            "vanilla_steps": vanilla["run"]["completed_grpo_steps"],
-            "dynamic_steps": dynamic["run"]["completed_grpo_steps"],
-            "vanilla_elapsed_seconds": vanilla["run"]["elapsed_train_seconds"],
-            "dynamic_elapsed_seconds": dynamic["run"]["elapsed_train_seconds"],
+            strategy: {
+                "steps": summary["run"]["completed_grpo_steps"],
+                "elapsed_seconds": summary["run"]["elapsed_train_seconds"],
+            }
+            for strategy, summary in summaries.items()
         },
         "sampling": {
-            "vanilla_attempted_groups": vanilla["groups"]["attempted_groups"],
-            "vanilla_effective_groups": vanilla["groups"]["effective_groups"],
-            "vanilla_optimized_effective_groups": vanilla["groups"][
-                "optimized_effective_groups"
-            ],
-            "dynamic_attempted_groups": dynamic["groups"]["attempted_groups"],
-            "dynamic_effective_groups": dynamic["groups"]["effective_groups"],
-            "dynamic_optimized_groups": dynamic["groups"]["optimized_groups"],
-            "dynamic_optimized_effective_groups": dynamic["groups"][
-                "optimized_effective_groups"
-            ],
-            "dynamic_discarded_groups": dynamic["groups"]["discarded_groups"],
-            "dynamic_discarded_rollout_tokens": dynamic["rollout_cost"][
-                "exact_discarded_rollout_tokens"
-            ],
-            "dynamic_discarded_rollout_token_ratio": dynamic["rollout_cost"][
-                "exact_discarded_rollout_token_ratio"
-            ],
-            "vanilla_optimized_effective_groups_per_million_tokens": (
-                vanilla_effective
-            ),
-            "dynamic_optimized_effective_groups_per_million_tokens": (
-                dynamic_effective
-            ),
-            "optimized_effective_groups_per_million_relative_change": (
-                dynamic_effective / vanilla_effective - 1
-            ),
+            strategy: {
+                "attempted_groups": summary["groups"]["attempted_groups"],
+                "zero_variance_group_ratio": summary["groups"][
+                    "zero_variance_group_ratio"
+                ],
+                "effective_groups": summary["groups"]["effective_groups"],
+                "optimized_effective_groups": summary["groups"][
+                    "optimized_effective_groups"
+                ],
+                "optimized_effective_groups_per_million_tokens": summary[
+                    "groups"
+                ]["optimized_effective_groups_per_million_rollout_tokens"],
+                "relative_effective_groups_per_million_vs_vanilla": (
+                    summary["groups"][
+                        "optimized_effective_groups_per_million_rollout_tokens"
+                    ]
+                    / summaries["vanilla"]["groups"][
+                        "optimized_effective_groups_per_million_rollout_tokens"
+                    ]
+                    - 1
+                ),
+                "discarded_groups": summary["groups"]["discarded_groups"],
+                "discarded_rollout_tokens": summary["rollout_cost"][
+                    "exact_discarded_rollout_tokens"
+                ],
+            }
+            for strategy, summary in summaries.items()
         },
         "performance": {
-            "vanilla_final_full_accuracy": vanilla_accuracy,
-            "dynamic_final_full_accuracy": dynamic_accuracy,
-            "dynamic_minus_vanilla_accuracy_points": (
-                dynamic_accuracy - vanilla_accuracy
-            )
-            * 100,
+            strategy: {
+                "final_full_accuracy": summary["final_full_evaluation"][
+                    "accuracy"
+                ],
+                "accuracy_points_vs_vanilla": (
+                    summary["final_full_evaluation"]["accuracy"]
+                    - vanilla_accuracy
+                )
+                * 100,
+            }
+            for strategy, summary in summaries.items()
+        }
+        | {
             "tokens_to_target_accuracy": target_comparison,
         },
     }
@@ -180,6 +193,8 @@ def main() -> None:
     vanilla = load_run(args.vanilla_dir)
     dynamic = load_run(args.dynamic_dir)
     runs = {"Vanilla": vanilla, "Dynamic": dynamic}
+    if args.difficulty_dir:
+        runs["Difficulty-Aware"] = load_run(args.difficulty_dir)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     evaluations = []
@@ -191,7 +206,11 @@ def main() -> None:
         args.output_dir / "evaluation_comparison.csv", index=False
     )
 
-    comparison = build_comparison(vanilla[0], dynamic[0])
+    summaries = {
+        label.lower().replace("-aware", "").replace("-", "_"): summary
+        for label, (summary, _) in runs.items()
+    }
+    comparison = build_comparison(summaries)
     with (args.output_dir / "comparison.json").open("w", encoding="utf-8") as file:
         json.dump(comparison, file, indent=2, ensure_ascii=False)
     plot_accuracy(runs, args.output_dir)
