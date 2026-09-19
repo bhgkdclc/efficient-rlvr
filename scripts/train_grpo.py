@@ -1208,7 +1208,7 @@ def train_grpo_experiment(
             experiment_logger=experiment_logger,
             model_step=completed_grpo_steps,
             output_path=Path(args.output_path),
-            save=True,
+            save=args.save_final_checkpoint,
         )
 
     logger.info(
@@ -1295,6 +1295,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-steps", type=int, default=50)
     parser.add_argument("--eval-temperature", type=float, default=0.0)
     parser.add_argument("--eval-max-tokens", type=int, default=1024)
+    parser.add_argument(
+        "--save-final-checkpoint",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Save the final model after the full evaluation",
+    )
     parser.add_argument(
         "--eval-before-training",
         action=argparse.BooleanOptionalAction,

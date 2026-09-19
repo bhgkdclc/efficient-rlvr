@@ -50,6 +50,14 @@ claim of statistical equivalence or higher final accuracy.
    evaluation limit from 512 to 1024 tokens improves Vanilla by 3.21 points
    and Fast-EMA by 4.02 points on average. Mean unparseable outputs fall from
    92.7 to 24.0 for Vanilla and from 109.3 to 28.3 for Fast-EMA.
+6. **Combining pre-selection with Dynamic Filtering is not automatically
+   better.** Difficulty-Dynamic lowers the attempted zero-variance ratio to
+   35.26% and the discarded-token ratio to 31.59%, but its effective groups
+   per million tokens (178.51) are nearly identical to Fast-EMA (176.99).
+   Packing the signal into 89 rather than 141 optimizer updates increases mean
+   gradient norm by 21% and lowers three-seed Pass@1 to 80.67%. Of the mean
+   35-example gap versus Fast-EMA, 32.3 examples are format failures and only
+   2.7 are explicit wrong answers.
 
 ![Evaluation-length audit](results/eval_length_audit_20260918/evaluation_length_audit.png)
 
@@ -109,6 +117,7 @@ The consolidated reports are:
 
 - [Three-seed sampling analysis](results/multiseed_vanilla_vs_fast_ema_20260918/report.md)
 - [Evaluation-length audit and corrected endpoints](results/eval_length_audit_20260918/report.md)
+- [Difficulty-Aware + Dynamic Filtering audit](results/difficulty_dynamic_multiseed_20260919/report.md)
 - [Coverage-schedule ablations](results/coverage_schedule_ablation_seed42_20260918/report.md)
 
 ## Repository layout
@@ -117,6 +126,8 @@ The consolidated reports are:
 - `cs336_alignment/sampling.py`: Dynamic and Difficulty-Aware samplers.
 - `scripts/analyze_grpo_run.py`: per-run summaries and plots.
 - `scripts/compare_multiseed.py`: paired multi-seed aggregation.
+- `scripts/analyze_difficulty_dynamic_multiseed.py`: combined-sampler audit and
+  failure decomposition.
 - `scripts/analyze_eval_length_audit.py`: corrected endpoint and truncation audit.
 - `experiments/README.md`: experiment protocol and pre-declared screening rules.
 - `results/`: compact CSV/JSON summaries, plots, and reports.

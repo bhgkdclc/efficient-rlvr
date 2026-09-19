@@ -56,6 +56,17 @@ python scripts/analyze_eval_length_audit.py \
   --output-dir results/eval_length_audit_20260918
 ```
 
+Aggregate the Difficulty-Aware + Dynamic Filtering replications with:
+
+```bash
+python scripts/analyze_difficulty_dynamic_multiseed.py \
+  --difficulty-dynamic-dirs results/<combined-seed-42> results/<combined-seed-43> results/<combined-seed-44> \
+  --fastema-dirs results/<fastema-seed-42> results/<fastema-seed-43> results/<fastema-seed-44> \
+  --eval-length-audit results/eval_length_audit_20260918/per_seed_length_audit.csv \
+  --dynamic-dir results/dynamic_20260917_230635 \
+  --output-dir results/difficulty_dynamic_multiseed_20260919
+```
+
 Current reports:
 
 - `vanilla_random_20260917_220541/report.md`
@@ -71,3 +82,4 @@ Current reports:
 - `difficulty_frontloaded_coverage_seed42_20260918_144542/report.md`
 - `coverage_schedule_ablation_seed42_20260918/report.md`
 - `eval_length_audit_20260918/report.md`
+- `difficulty_dynamic_multiseed_20260919/report.md`

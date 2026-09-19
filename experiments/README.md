@@ -17,6 +17,7 @@ Generated run directories are ignored by Git. The first-stage scripts are:
 - `scripts/run_difficulty_fast_ema.sh`
 - `scripts/run_difficulty_dynamic_smoke.sh`
 - `scripts/run_difficulty_dynamic_baseline.sh`
+- `scripts/run_difficulty_dynamic_cadence_matched.sh`
 - `scripts/run_difficulty_coverage_smoke.sh`
 - `scripts/run_difficulty_coverage_baseline.sh`
 - `scripts/run_difficulty_frontloaded_coverage.sh`
@@ -42,6 +43,19 @@ ratio by at least 15% relatively and improve optimized effective groups per
 million rollout tokens by at least 10%; final Pass@1 should be no more than one
 point below the paired seed-42 Fast-EMA run. Only a passing efficiency screen
 is replicated on seeds 43 and 44.
+
+The replications confirmed the efficiency result but failed the accuracy
+guardrail on seeds 43 and 44. Across three seeds, Difficulty-Dynamic packed
+roughly the same number of effective groups as Fast-EMA into about 89 rather
+than 141 optimizer updates; 32.3 of the mean 35-example endpoint gap came from
+format failures. `run_difficulty_dynamic_cadence_matched.sh` is the registered
+single-variable follow-up: it targets five accepted prompt groups (40
+responses) per optimizer batch, matching Fast-EMA's observed effective-group
+update cadence while leaving the sampler, reward, group size, and 4M-token
+budget unchanged. Screen seed 44 first. It passes if full-test Pass@1 is at
+least 82.85% (within one point of Fast-EMA seed 44), wrong-format outputs are
+at most 50, and optimized effective groups per million rollout tokens remain
+at least 170. Only a passing seed-44 run is replicated on seed 43.
 
 `run_difficulty_fast_ema.sh` is the focused follow-up to the first
 Difficulty-Aware run. It changes only `difficulty_ema_beta` from 0.9 to 0.5

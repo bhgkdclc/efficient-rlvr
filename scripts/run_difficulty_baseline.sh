@@ -13,8 +13,23 @@ SAMPLING_UNIFORM_EPSILON="${SAMPLING_UNIFORM_EPSILON:-0.1}"
 DIFFICULTY_WARMUP_GROUPS="${DIFFICULTY_WARMUP_GROUPS:-128}"
 SEED="${SEED:-42}"
 CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
+SAVE_FINAL_CHECKPOINT="${SAVE_FINAL_CHECKPOINT:-true}"
+FORMAT_REWARD_WEIGHT="${FORMAT_REWARD_WEIGHT:-0.1}"
+ANSWER_REWARD_WEIGHT="${ANSWER_REWARD_WEIGHT:-1.0}"
+ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-64}"
+TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-64}"
+GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-64}"
 OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/${EXPERIMENT_NAME}_${RUN_TAG}}"
 WANDB_MODE="${WANDB_MODE:-offline}"
+
+case "${SAVE_FINAL_CHECKPOINT}" in
+    true) FINAL_CHECKPOINT_FLAG="--save-final-checkpoint" ;;
+    false) FINAL_CHECKPOINT_FLAG="--no-save-final-checkpoint" ;;
+    *)
+        echo "SAVE_FINAL_CHECKPOINT must be true or false" >&2
+        exit 2
+        ;;
+esac
 
 export HF_HOME="${HF_HOME:-${PERSIST_ROOT}/huggingface}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${PERSIST_ROOT}/uv}"
@@ -33,16 +48,16 @@ uv run --no-sync python scripts/train_grpo.py \
     --sampling-uniform-epsilon "${SAMPLING_UNIFORM_EPSILON}" \
     --difficulty-warmup-groups "${DIFFICULTY_WARMUP_GROUPS}" \
     --reward-mode question_only \
-    --format-reward-weight 0.1 \
-    --answer-reward-weight 1.0 \
+    --format-reward-weight "${FORMAT_REWARD_WEIGHT}" \
+    --answer-reward-weight "${ANSWER_REWARD_WEIGHT}" \
     --zero-variance-epsilon 1e-8 \
     --loss-type reinforce_with_baseline \
     --learning-rate 2e-5 \
     --n-grpo-steps 200 \
-    --rollout-batch-size 64 \
+    --rollout-batch-size "${ROLLOUT_BATCH_SIZE}" \
     --group-size 8 \
-    --train-batch-size 64 \
-    --gradient-accumulation-steps 64 \
+    --train-batch-size "${TRAIN_BATCH_SIZE}" \
+    --gradient-accumulation-steps "${GRADIENT_ACCUMULATION_STEPS}" \
     --sampling-temperature 1.0 \
     --sampling-max-tokens 512 \
     --max-rollout-tokens 4000000 \
@@ -52,6 +67,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --final-eval-samples 0 \
     --eval-temperature 0.0 \
     --eval-max-tokens 1024 \
+    "${FINAL_CHECKPOINT_FLAG}" \
     --train-device cuda:0 \
     --vllm-device cuda:0 \
     --vllm-gpu-memory-utilization 0.4 \

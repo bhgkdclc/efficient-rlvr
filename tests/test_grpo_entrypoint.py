@@ -48,6 +48,14 @@ def test_parser_accepts_difficulty_dynamic_sampling():
     assert args.difficulty_ema_beta == 0.5
 
 
+def test_parser_can_disable_final_checkpoint():
+    args = build_parser().parse_args(
+        ["--output-path", "unused", "--no-save-final-checkpoint"]
+    )
+
+    assert args.save_final_checkpoint is False
+
+
 def test_parser_accepts_difficulty_sampling_configuration():
     args = build_parser().parse_args(
         [

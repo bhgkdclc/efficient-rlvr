@@ -1,0 +1,202 @@
+{
+  "run": {
+    "git_commit": "bbcfb840fe8f0c76125ae37a717d8edcbd0f2a2c",
+    "seed": 42,
+    "model_name_or_path": "/root/autodl-tmp/efficient-rlvr-cache/models/Qwen2.5-Math-1.5B",
+    "dataset": "data/gsm8k/train.jsonl",
+    "sampling_strategy": "difficulty_dynamic",
+    "group_size": 8,
+    "rollout_batch_size": 64,
+    "completed_grpo_steps": 89,
+    "elapsed_train_seconds": 1473.2800827026367
+  },
+  "rollout_cost": {
+    "total_rollout_tokens": 4008481,
+    "generated_response_tokens": 3428353,
+    "estimated_zero_variance_rollout_tokens": 1455836,
+    "estimated_zero_variance_token_ratio": 0.36318894863166373,
+    "exact_discarded_rollout_tokens": 1334046,
+    "exact_discarded_rollout_token_ratio": 0.3328058683576148
+  },
+  "groups": {
+    "total_groups": 1128,
+    "attempted_groups": 1128,
+    "zero_variance_groups": 410,
+    "effective_groups": 718,
+    "zero_variance_group_ratio": 0.36347517730496454,
+    "accepted_groups": 718,
+    "discarded_groups": 410,
+    "optimized_groups": 712,
+    "optimized_effective_groups": 712,
+    "optimizer_batch_effective_group_ratio": 1.0,
+    "effective_groups_per_million_rollout_tokens": 179.120220352797,
+    "optimized_effective_groups_per_million_rollout_tokens": 177.6233939988739
+  },
+  "comparable_evaluation": {
+    "sample_count": 256,
+    "initial_step": 0,
+    "initial_accuracy": 0.6640625,
+    "last_step": 80,
+    "last_accuracy": 0.8046875,
+    "accuracy_gain_points": 14.0625,
+    "rollout_tokens_per_accuracy_point": 251710.36444444445,
+    "tokens_to_target_accuracy": {
+      "0.65": {
+        "model_step": 0,
+        "cumulative_rollout_tokens": 0,
+        "accuracy": 0.6640625
+      },
+      "0.70": {
+        "model_step": 20,
+        "cumulative_rollout_tokens": 745026,
+        "accuracy": 0.7109375
+      },
+      "0.75": {
+        "model_step": 30,
+        "cumulative_rollout_tokens": 1157527,
+        "accuracy": 0.75
+      },
+      "0.79": {
+        "model_step": 50,
+        "cumulative_rollout_tokens": 2069824,
+        "accuracy": 0.796875
+      }
+    }
+  },
+  "final_full_evaluation": {
+    "model_step": 89,
+    "sample_count": 1319,
+    "correct": 1101,
+    "accuracy": 0.8347232752084913,
+    "wrong_answer": 208,
+    "wrong_format": 10,
+    "average_response_length": 344.76194086429115,
+    "length_truncated_responses": 1,
+    "length_truncated_response_ratio": 0.000758150113722517
+  },
+  "trend": {
+    "step_vs_zero_variance_pearson_r": 0.3392849509063018,
+    "window_means": {
+      "first_20_steps": {
+        "zero_variance_group_ratio": 0.28571429003828336,
+        "effective_group_ratio": 0.7142857313156128,
+        "all_correct_group_ratio": 0.26785714708135594,
+        "all_wrong_group_ratio": 0.07142857339100114,
+        "mixed_group_ratio": 0.6607142978214792,
+        "format_reward_mean": 0.8850446346082858,
+        "answer_reward_mean": 0.6835937460086176,
+        "reward_mean": 0.7720982211508921,
+        "reward_std": 0.4767258652885045,
+        "group_reward_variance_mean": 0.12702846450598113,
+        "advantage_std": 0.7914114586476769,
+        "average_response_length": 356.8984375,
+        "length_truncated_response_ratio": 0.12388392857142858,
+        "policy_entropy": 0.19936181448087037
+      },
+      "middle_20_steps": {
+        "zero_variance_group_ratio": 0.3798449698171412,
+        "effective_group_ratio": 0.6201550592054692,
+        "all_correct_group_ratio": 0.3798449698171412,
+        "all_wrong_group_ratio": 0.0,
+        "mixed_group_ratio": 0.6201550592054692,
+        "format_reward_mean": 0.9060077540172163,
+        "answer_reward_mean": 0.8144379861133043,
+        "reward_mean": 0.9050387911094252,
+        "reward_std": 0.4078603095786516,
+        "group_reward_variance_mean": 0.12265989363424537,
+        "advantage_std": 0.737063865328944,
+        "average_response_length": 385.48740310077517,
+        "length_truncated_response_ratio": 0.12257751937984496,
+        "policy_entropy": 0.16566717993112584
+      },
+      "last_20_steps": {
+        "zero_variance_group_ratio": 0.42753624054940714,
+        "effective_group_ratio": 0.5724637811814529,
+        "all_correct_group_ratio": 0.42753624054940714,
+        "all_wrong_group_ratio": 0.0,
+        "mixed_group_ratio": 0.5724637811814529,
+        "format_reward_mean": 0.9302536272916241,
+        "answer_reward_mean": 0.8478260839330978,
+        "reward_mean": 0.9408514503983484,
+        "reward_std": 0.3710458316448806,
+        "group_reward_variance_mean": 0.10381001509402109,
+        "advantage_std": 0.7060972754506097,
+        "average_response_length": 385.2658514492754,
+        "length_truncated_response_ratio": 0.11775362318840579,
+        "policy_entropy": 0.137639213954044
+      },
+      "all_steps": {
+        "zero_variance_group_ratio": 0.36347518363267395,
+        "effective_group_ratio": 0.6365248401325645,
+        "all_correct_group_ratio": 0.3590425595522244,
+        "all_wrong_group_ratio": 0.016843972106774647,
+        "mixed_group_ratio": 0.6241134910031836,
+        "format_reward_mean": 0.9103501769879185,
+        "answer_reward_mean": 0.7926640057711737,
+        "reward_mean": 0.8836990389840823,
+        "reward_std": 0.41413260074266306,
+        "group_reward_variance_mean": 0.11936932772477256,
+        "advantage_std": 0.7457942980084014,
+        "average_response_length": 379.91500443262413,
+        "length_truncated_response_ratio": 0.12145390070921985,
+        "policy_entropy": 0.16701841011411492
+      }
+    }
+  },
+  "difficulty_sampler": {
+    "warmup_groups": 128,
+    "ema_beta": 0.5,
+    "uniform_epsilon": 0.1,
+    "coverage_weight": 0.0,
+    "phase_metrics": {
+      "warmup": {
+        "steps": 11,
+        "groups": 131,
+        "rollout_tokens": 426003,
+        "zero_variance_group_ratio": 0.32824427970038117,
+        "effective_groups": 88,
+        "effective_groups_per_million_rollout_tokens": 206.57131522547962,
+        "estimated_zero_variance_token_ratio": 0.3246601288365752,
+        "answer_reward_mean": 0.6860686991050953,
+        "format_reward_mean": 0.8797709814464773,
+        "average_response_length": 349.125,
+        "length_truncated_response_ratio": 0.13358778625954199
+      },
+      "post_warmup": {
+        "steps": 79,
+        "groups": 997,
+        "rollout_tokens": 3582478,
+        "zero_variance_group_ratio": 0.3681043194552721,
+        "effective_groups": 630,
+        "effective_groups_per_million_rollout_tokens": 175.85592988986951,
+        "estimated_zero_variance_token_ratio": 0.3677706393960615,
+        "answer_reward_mean": 0.8066700089539783,
+        "format_reward_mean": 0.9143681053890508,
+        "average_response_length": 383.9606318956871,
+        "length_truncated_response_ratio": 0.11985957873620863
+      }
+    },
+    "observed_prompts": 225,
+    "dataset_prompt_coverage": 0.030108390204737052,
+    "post_warmup_selected_seen_ratio": 0.9049290407632071,
+    "calibration_batch_count": 79,
+    "post_warmup_predicted_accuracy_mean": 0.7276905958225673,
+    "post_warmup_observed_group_accuracy_mean": 0.801026292185311,
+    "post_warmup_accuracy_calibration_gap": 0.07333569636274385,
+    "boundary_score_vs_effective_ratio_pearson_r": 0.42819920757600644,
+    "last_20_predicted_accuracy_mean": 0.8004478845339591,
+    "last_20_observed_group_accuracy_mean": 0.8372302176989675,
+    "total_prompt_group_selections": 1128,
+    "sample_count_mean": 5.013333333333334,
+    "sample_count_median": 3.0,
+    "sample_count_p90": 12.0,
+    "sample_count_max": 24,
+    "final_prompt_ema_accuracy_mean": 0.871869605117374,
+    "prompts_with_zero_ema_accuracy": 18,
+    "prompts_with_one_ema_accuracy": 85
+  },
+  "notes": [
+    "Intermediate and initial accuracy use the fixed evaluation subset; the final full evaluation is not directly comparable.",
+    "Exact discarded token cost comes from per-group dynamic-filtering logs."
+  ]
+}
