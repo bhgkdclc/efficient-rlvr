@@ -23,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fastema-dirs", type=Path, nargs="+", required=True)
     parser.add_argument("--eval-length-audit", type=Path, required=True)
     parser.add_argument("--dynamic-dir", type=Path, required=True)
+    parser.add_argument("--cadence-matched-dir", type=Path)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -215,6 +216,56 @@ def plot_summary(
     plt.close(fig)
 
 
+def plot_cadence_comparison(comparison: pd.DataFrame, output_path: Path) -> None:
+    labels = comparison["label"].tolist()
+    colors = ["#9467bd", "#2ca02c", "#17becf"]
+    fig, axes = plt.subplots(2, 2, figsize=(10.2, 7.5))
+
+    axes[0, 0].bar(labels, comparison["optimizer_steps"], color=colors)
+    axes[0, 0].set_ylabel("Optimizer steps")
+    axes[0, 0].set_title("Five groups restore update cadence")
+
+    axes[0, 1].bar(
+        labels, comparison["effective_groups_per_million_tokens"], color=colors
+    )
+    axes[0, 1].set_ylabel("Optimized effective groups / 1M tokens")
+    axes[0, 1].set_title("Signal efficiency is preserved")
+
+    axes[1, 0].bar(labels, comparison["accuracy"] * 100, color=colors)
+    axes[1, 0].set_ylabel("Full GSM8K Pass@1 @ 1024 (%)")
+    axes[1, 0].set_ylim(76, 85)
+    axes[1, 0].set_title("Cadence repair only partly recovers quality")
+
+    positions = np.arange(len(comparison))
+    width = 0.36
+    axes[1, 1].bar(
+        positions - width / 2,
+        comparison["wrong_answer"],
+        width,
+        label="Wrong answer",
+        color="#d62728",
+    )
+    axes[1, 1].bar(
+        positions + width / 2,
+        comparison["wrong_format"],
+        width,
+        label="Wrong format",
+        color="#ffbf00",
+    )
+    axes[1, 1].set_xticks(positions, labels)
+    axes[1, 1].set_ylabel("Full-test failures")
+    axes[1, 1].set_title("Recovered accuracy comes from format stability")
+    axes[1, 1].legend(frameon=False)
+
+    for axis in axes.flat:
+        axis.grid(axis="y", alpha=0.25)
+        axis.tick_params(axis="x", labelrotation=8)
+    fig.suptitle("Seed-44 cadence-matched control", y=1.01)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
 def main() -> None:
     args = parse_args()
     runs = [
@@ -271,9 +322,106 @@ def main() -> None:
     with (args.dynamic_dir / "summary.json").open(encoding="utf-8") as file:
         dynamic_summary = json.load(file)
 
+    cadence_comparison = None
+    cadence_summary = None
+    if args.cadence_matched_dir is not None:
+        cadence_run = load_analyzed_run(
+            args.cadence_matched_dir, "difficulty_dynamic_g5"
+        )
+        cadence_row = training_row(cadence_run)
+        if cadence_row["seed"] != 44:
+            raise ValueError("the cadence-matched screening run must use seed 44")
+
+        def comparison_row(
+            strategy: str, label: str, training: pd.Series | dict
+        ) -> dict[str, float | int | str]:
+            endpoint_strategy = (
+                "difficulty_beta05" if strategy == "fastema" else strategy
+            )
+            selected_endpoint = endpoint[
+                (endpoint["seed"] == 44)
+                & (endpoint["strategy"] == endpoint_strategy)
+            ].iloc[-1]
+            return {
+                "strategy": strategy,
+                "label": label,
+                "optimizer_steps": training["optimizer_steps"],
+                "effective_groups_per_million_tokens": training[
+                    "effective_groups_per_million_tokens"
+                ],
+                "discarded_rollout_token_ratio": training[
+                    "discarded_rollout_token_ratio"
+                ],
+                "training_format_reward_mean": training[
+                    "training_format_reward_mean"
+                ],
+                "accuracy": selected_endpoint["accuracy"],
+                "wrong_answer": selected_endpoint["wrong_answer"],
+                "wrong_format": selected_endpoint["wrong_format"],
+            }
+
+        fast44 = fast[fast["seed"] == 44].iloc[0]
+        combined44 = combined[combined["seed"] == 44].iloc[0]
+        cadence_endpoint = {
+            "seed": 44,
+            "strategy": "difficulty_dynamic_g5",
+            "accuracy": cadence_row["full_accuracy"],
+            "wrong_answer": cadence_row["full_wrong_answer"],
+            "wrong_format": cadence_row["full_wrong_format"],
+        }
+        endpoint = pd.concat(
+            [endpoint, pd.DataFrame([cadence_endpoint])], ignore_index=True
+        ).sort_values(["seed", "strategy"])
+        cadence_comparison = pd.DataFrame(
+            [
+                comparison_row("fastema", "Fast-EMA", fast44),
+                comparison_row(
+                    "difficulty_dynamic", "D+D, 8 groups", combined44
+                ),
+                {
+                    "strategy": "difficulty_dynamic_g5",
+                    "label": "D+D, 5 groups",
+                    "optimizer_steps": cadence_row["optimizer_steps"],
+                    "effective_groups_per_million_tokens": cadence_row[
+                        "effective_groups_per_million_tokens"
+                    ],
+                    "discarded_rollout_token_ratio": cadence_row[
+                        "discarded_rollout_token_ratio"
+                    ],
+                    "training_format_reward_mean": cadence_row[
+                        "training_format_reward_mean"
+                    ],
+                    "accuracy": cadence_row["full_accuracy"],
+                    "wrong_answer": cadence_row["full_wrong_answer"],
+                    "wrong_format": cadence_row["full_wrong_format"],
+                },
+            ]
+        )
+        cadence_summary = {
+            key: (
+                float(value)
+                if isinstance(value, (np.floating, np.integer))
+                else value
+            )
+            for key, value in cadence_comparison.iloc[2].to_dict().items()
+            if key != "label"
+        }
+        cadence_summary["screen"] = {
+            "passes_accuracy": cadence_summary["accuracy"] >= 0.828514,
+            "passes_format": cadence_summary["wrong_format"] <= 50,
+            "passes_efficiency": (
+                cadence_summary["effective_groups_per_million_tokens"] >= 170
+            ),
+        }
+        cadence_summary["screen"]["passes_all"] = all(
+            cadence_summary["screen"].values()
+        )
+
     endpoint_aggregate = {
         strategy: mean_std(frame, "accuracy")
-        for strategy, frame in endpoint.groupby("strategy")
+        for strategy, frame in endpoint[
+            endpoint["strategy"] != "difficulty_dynamic_g5"
+        ].groupby("strategy")
     }
     summary = {
         "seeds": [42, 43, 44],
@@ -328,6 +476,7 @@ def main() -> None:
             }
             for strategy, frame in endpoint.groupby("strategy")
         },
+        "cadence_matched_seed44": cadence_summary,
     }
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -342,6 +491,14 @@ def main() -> None:
         dynamic_summary,
         args.output_dir / "difficulty_dynamic_multiseed.png",
     )
+    if cadence_comparison is not None:
+        cadence_comparison.to_csv(
+            args.output_dir / "cadence_matched_seed44.csv", index=False
+        )
+        plot_cadence_comparison(
+            cadence_comparison,
+            args.output_dir / "cadence_matched_seed44.png",
+        )
 
     dd = summary["difficulty_dynamic"]
     fast_summary = summary["fastema"]
@@ -349,6 +506,43 @@ def main() -> None:
     endpoints = summary["full_evaluation_1024"]
     errors = summary["mean_error_decomposition"]
     versus_fast = summary["paired_accuracy_difference_vs_fastema_pp"]
+    cadence_section = ""
+    if cadence_comparison is not None:
+        fast44, combined44, cadence44 = [
+            row for _, row in cadence_comparison.iterrows()
+        ]
+        cadence_section = f"""
+## Cadence-matched control
+
+The seed-44 follow-up changes only the target accepted batch from eight prompt
+groups (64 responses) to five groups (40 responses). This restores optimizer
+steps from {combined44['optimizer_steps']:.0f} to
+{cadence44['optimizer_steps']:.0f}, matching Fast-EMA's
+{fast44['optimizer_steps']:.0f} steps, while preserving rollout efficiency.
+
+| Seed-44 metric | Fast-EMA | D+D, 8 groups | D+D, 5 groups |
+|---|---:|---:|---:|
+| Optimizer steps | {fast44['optimizer_steps']:.0f} | {combined44['optimizer_steps']:.0f} | **{cadence44['optimizer_steps']:.0f}** |
+| Effective groups / 1M tokens | {fast44['effective_groups_per_million_tokens']:.2f} | {combined44['effective_groups_per_million_tokens']:.2f} | {cadence44['effective_groups_per_million_tokens']:.2f} |
+| Training format reward | {fast44['training_format_reward_mean']:.3f} | {combined44['training_format_reward_mean']:.3f} | **{cadence44['training_format_reward_mean']:.3f}** |
+| Full Pass@1 @ 1024 | {fast44['accuracy'] * 100:.2f}% | {combined44['accuracy'] * 100:.2f}% | **{cadence44['accuracy'] * 100:.2f}%** |
+| Wrong answer | {fast44['wrong_answer']:.0f} | {combined44['wrong_answer']:.0f} | {cadence44['wrong_answer']:.0f} |
+| Wrong format | {fast44['wrong_format']:.0f} | {combined44['wrong_format']:.0f} | **{cadence44['wrong_format']:.0f}** |
+
+![Cadence-matched control](cadence_matched_seed44.png)
+
+Matching update cadence recovers {(cadence44['accuracy'] - combined44['accuracy']) * 100:.2f}
+Pass@1 points and removes {combined44['wrong_format'] - cadence44['wrong_format']:.0f}
+format failures relative to naive Difficulty-Dynamic. It still trails Fast-EMA
+by {(fast44['accuracy'] - cadence44['accuracy']) * 100:.2f} points and has
+{cadence44['wrong_format'] - fast44['wrong_format']:.0f} additional format
+failures. It passes the efficiency threshold but fails the pre-registered
+accuracy and format guardrails. Update cadence is therefore a partial cause,
+not a complete explanation; conditioning every optimizer batch on observed
+non-zero reward variance remains associated with format instability. Per the
+registered rule, this branch stops without a seed-43 replication.
+"""
+
     report = f"""# Difficulty-Aware + Dynamic Filtering audit
 
 All runs use Qwen2.5-Math-1.5B, GSM8K, group size 8, and an approximately
@@ -401,6 +595,8 @@ only 2.7 from explicit wrong answers. The regression is therefore primarily a
 format-stability failure, not evidence of a comparable collapse in mathematical
 answer quality.
 
+{cadence_section}
+
 ## Conclusion
 
 Pre-generation Fast-EMA sampling remains the recommended method. It provides
@@ -409,11 +605,9 @@ format instability introduced by packing every optimizer batch with effective
 groups. This rejects the naive hypothesis that maximizing the effective-group
 fraction of each optimizer batch must improve final accuracy.
 
-A targeted follow-up should restore Fast-EMA's optimizer-update cadence while
-leaving the sampler, reward, group size, and token budget fixed. Targeting five
-accepted groups per batch matches the observed Fast-EMA effective-group count
-per update. It should first be screened on the worst seed (44) before
-replication.
+The cadence-matched control only partially repairs the regression and fails
+its pre-registered screen. No further combined-filtering replication is
+warranted. Fast-EMA is the final recommended sampler.
 """
     (args.output_dir / "report.md").write_text(report, encoding="utf-8")
     print(json.dumps(summary, indent=2, ensure_ascii=False))

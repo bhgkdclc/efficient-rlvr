@@ -57,9 +57,14 @@ claim of statistical equivalence or higher final accuracy.
    Packing the signal into 89 rather than 141 optimizer updates increases mean
    gradient norm by 21% and lowers three-seed Pass@1 to 80.67%. Of the mean
    35-example gap versus Fast-EMA, 32.3 examples are format failures and only
-   2.7 are explicit wrong answers.
+   2.7 are explicit wrong answers. A seed-44 cadence-matched control restored
+   139 updates and recovered 1.97 Pass@1 points plus 29 format failures, but it
+   still missed the registered accuracy and format guardrails. Update cadence
+   explains part, but not all, of the combined method's instability.
 
 ![Evaluation-length audit](results/eval_length_audit_20260918/evaluation_length_audit.png)
+
+![Cadence-matched control](results/difficulty_dynamic_multiseed_20260919/cadence_matched_seed44.png)
 
 The length audit was discovered after the Hybrid run lost accuracy mostly
 through parser/format failures rather than explicit wrong answers. New runs log

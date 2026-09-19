@@ -64,6 +64,7 @@ python scripts/analyze_difficulty_dynamic_multiseed.py \
   --fastema-dirs results/<fastema-seed-42> results/<fastema-seed-43> results/<fastema-seed-44> \
   --eval-length-audit results/eval_length_audit_20260918/per_seed_length_audit.csv \
   --dynamic-dir results/dynamic_20260917_230635 \
+  --cadence-matched-dir results/<cadence-matched-seed-44> \
   --output-dir results/difficulty_dynamic_multiseed_20260919
 ```
 

@@ -7,4 +7,5 @@ seed,strategy,accuracy,wrong_answer,wrong_format
 43,vanilla,0.8385140257771039,186,27
 44,difficulty_beta05,0.8385140257771039,192,21
 44,difficulty_dynamic,0.7839272175890827,184,101
+44,difficulty_dynamic_g5,0.8036391205458681,187,72
 44,vanilla,0.8347232752084913,196,22

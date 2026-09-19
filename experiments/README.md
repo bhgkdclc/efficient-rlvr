@@ -57,6 +57,13 @@ least 82.85% (within one point of Fast-EMA seed 44), wrong-format outputs are
 at most 50, and optimized effective groups per million rollout tokens remain
 at least 170. Only a passing seed-44 run is replicated on seed 43.
 
+The seed-44 control restored optimizer steps from 87 to 139 and preserved
+173.12 optimized effective groups per million tokens. Pass@1 improved from
+78.39% to 80.36%, while wrong-format outputs fell from 101 to 72. It therefore
+passed only the efficiency criterion, not the 82.85% accuracy or 50-format-
+failure guardrails. This branch is closed without a seed-43 replication;
+Fast-EMA remains the selected sampler.
+
 `run_difficulty_fast_ema.sh` is the focused follow-up to the first
 Difficulty-Aware run. It changes only `difficulty_ema_beta` from 0.9 to 0.5
 to test whether stale prompt histories caused the measured calibration lag.

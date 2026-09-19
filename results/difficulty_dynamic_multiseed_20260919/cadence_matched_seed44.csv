@@ -1,0 +1,4 @@
+strategy,label,optimizer_steps,effective_groups_per_million_tokens,discarded_rollout_token_ratio,training_format_reward_mean,accuracy,wrong_answer,wrong_format
+fastema,Fast-EMA,138,180.72389490569915,0.0,0.901947463768116,0.8385140257771039,192,21
+difficulty_dynamic,"D+D, 8 groups",87,173.97399088836218,0.3224725403552169,0.8805197783314864,0.7839272175890827,184,101
+difficulty_dynamic_g5,"D+D, 5 groups",139,173.1219568211421,0.34392681948062914,0.9078590781600387,0.8036391205458681,187,72

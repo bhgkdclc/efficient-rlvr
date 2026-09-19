@@ -50,6 +50,38 @@ only 2.7 from explicit wrong answers. The regression is therefore primarily a
 format-stability failure, not evidence of a comparable collapse in mathematical
 answer quality.
 
+
+## Cadence-matched control
+
+The seed-44 follow-up changes only the target accepted batch from eight prompt
+groups (64 responses) to five groups (40 responses). This restores optimizer
+steps from 87 to
+139, matching Fast-EMA's
+138 steps, while preserving rollout efficiency.
+
+| Seed-44 metric | Fast-EMA | D+D, 8 groups | D+D, 5 groups |
+|---|---:|---:|---:|
+| Optimizer steps | 138 | 87 | **139** |
+| Effective groups / 1M tokens | 180.72 | 173.97 | 173.12 |
+| Training format reward | 0.902 | 0.881 | **0.908** |
+| Full Pass@1 @ 1024 | 83.85% | 78.39% | **80.36%** |
+| Wrong answer | 192 | 184 | 187 |
+| Wrong format | 21 | 101 | **72** |
+
+![Cadence-matched control](cadence_matched_seed44.png)
+
+Matching update cadence recovers 1.97
+Pass@1 points and removes 29
+format failures relative to naive Difficulty-Dynamic. It still trails Fast-EMA
+by 3.49 points and has
+51 additional format
+failures. It passes the efficiency threshold but fails the pre-registered
+accuracy and format guardrails. Update cadence is therefore a partial cause,
+not a complete explanation; conditioning every optimizer batch on observed
+non-zero reward variance remains associated with format instability. Per the
+registered rule, this branch stops without a seed-43 replication.
+
+
 ## Conclusion
 
 Pre-generation Fast-EMA sampling remains the recommended method. It provides
@@ -58,8 +90,6 @@ format instability introduced by packing every optimizer batch with effective
 groups. This rejects the naive hypothesis that maximizing the effective-group
 fraction of each optimizer batch must improve final accuracy.
 
-A targeted follow-up should restore Fast-EMA's optimizer-update cadence while
-leaving the sampler, reward, group size, and token budget fixed. Targeting five
-accepted groups per batch matches the observed Fast-EMA effective-group count
-per update. It should first be screened on the worst seed (44) before
-replication.
+The cadence-matched control only partially repairs the regression and fails
+its pre-registered screen. No further combined-filtering replication is
+warranted. Fast-EMA is the final recommended sampler.

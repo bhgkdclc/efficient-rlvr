@@ -91,9 +91,29 @@
       "wrong_answer": 194.33333333333334,
       "wrong_format": 60.666666666666664
     },
+    "difficulty_dynamic_g5": {
+      "wrong_answer": 187.0,
+      "wrong_format": 72.0
+    },
     "vanilla": {
       "wrong_answer": 188.0,
       "wrong_format": 24.0
+    }
+  },
+  "cadence_matched_seed44": {
+    "strategy": "difficulty_dynamic_g5",
+    "optimizer_steps": 139,
+    "effective_groups_per_million_tokens": 173.1219568211421,
+    "discarded_rollout_token_ratio": 0.34392681948062914,
+    "training_format_reward_mean": 0.9078590781600387,
+    "accuracy": 0.8036391205458681,
+    "wrong_answer": 187,
+    "wrong_format": 72,
+    "screen": {
+      "passes_accuracy": false,
+      "passes_format": false,
+      "passes_efficiency": true,
+      "passes_all": false
     }
   }
 }
