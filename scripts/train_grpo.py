@@ -34,6 +34,7 @@ from cs336_alignment.grpo import (
 from cs336_alignment.rewards import make_weighted_reward_fn
 from cs336_alignment.sampling import (
     DifficultyAwareSampler,
+    normalize_clipped_importance_weights,
     split_group_indices_by_reward_variance,
 )
 from cs336_alignment.tokenize_prompt_and_output import tokenize_prompt_and_output
@@ -748,12 +749,16 @@ def train_grpo_experiment(
         difficulty_round_metadata: list[tuple[int, dict[str, Any]]] = []
         hybrid_uniform_group_count = 0
         attempted_prompt_indices: set[int] = set()
+        accepted_group_importance_weights: list[float] = []
+        accepted_group_effective_flags: list[bool] = []
+        importance_metadata: dict[str, Any] = {}
 
         if active_sampling_strategy == "dynamic":
             candidate_indices = list(range(len(train_data)))
 
         while accepted_groups < prompts_per_rollout_batch:
             groups_needed = prompts_per_rollout_batch - accepted_groups
+            round_group_importance_weights: list[float] | None = None
             if active_sampling_strategy == "random":
                 if difficulty_sampler is None:
                     rollout_dataset = random.sample(train_data, groups_needed)
@@ -785,9 +790,18 @@ def train_grpo_experiment(
                 round_prompt_indices = selected_indices
             elif active_sampling_strategy == "difficulty":
                 assert difficulty_sampler is not None
-                round_prompt_indices, round_difficulty_metadata = (
-                    difficulty_sampler.sample(groups_needed)
-                )
+                if args.prompt_importance_correction:
+                    (
+                        round_prompt_indices,
+                        round_difficulty_metadata,
+                        round_group_importance_weights,
+                    ) = difficulty_sampler.sample_with_importance_weights(
+                        groups_needed
+                    )
+                else:
+                    round_prompt_indices, round_difficulty_metadata = (
+                        difficulty_sampler.sample(groups_needed)
+                    )
                 rollout_dataset = [
                     train_data[index] for index in round_prompt_indices
                 ]
@@ -823,6 +837,11 @@ def train_grpo_experiment(
                 rollout_dataset = [
                     train_data[index] for index in round_prompt_indices
                 ]
+
+            if round_group_importance_weights is None:
+                round_group_importance_weights = [1.0] * len(
+                    round_prompt_indices
+                )
 
             rollout_prompts = [item["prompt"] for item in rollout_dataset]
             rollout_answers = [item["answer"] for item in rollout_dataset]
@@ -1017,6 +1036,12 @@ def train_grpo_experiment(
                 group_counts = rollout_group_token_counts(output)
                 if group_index in accepted_index_set:
                     accepted_groups += 1
+                    accepted_group_importance_weights.append(
+                        round_group_importance_weights[group_index]
+                    )
+                    accepted_group_effective_flags.append(
+                        group_index in effective_index_set
+                    )
                     responses.extend(round_responses[start:end])
                     repeated_ground_truths.extend(round_ground_truths[start:end])
                     prompts.extend(round_prompts[start:end])
@@ -1083,6 +1108,41 @@ def train_grpo_experiment(
         else:
             advantages = torch.empty(0)
             raw_rewards = torch.empty(0)
+
+        if args.prompt_importance_correction and responses:
+            normalized_group_weights, importance_metadata = (
+                normalize_clipped_importance_weights(
+                    accepted_group_importance_weights,
+                    args.importance_weight_clip_min,
+                    args.importance_weight_clip_max,
+                )
+            )
+            response_importance_weights = normalized_group_weights.repeat_interleave(
+                args.group_size
+            )
+            advantages = advantages * response_importance_weights
+            raw_rewards = raw_rewards * response_importance_weights
+            effective_weight = sum(
+                weight.item()
+                for weight, is_effective in zip(
+                    normalized_group_weights,
+                    accepted_group_effective_flags,
+                )
+                if is_effective
+            )
+            importance_metadata.update(
+                {
+                    "weighted_effective_groups": effective_weight,
+                    "weighted_effective_group_ratio": (
+                        effective_weight
+                        / normalized_group_weights.sum().item()
+                    ),
+                    "weighted_advantage_mean": advantages.mean().item(),
+                    "weighted_advantage_std": advantages.std(
+                        correction=0
+                    ).item(),
+                }
+            )
         advantages = advantages.unsqueeze(1)
         raw_rewards = raw_rewards.unsqueeze(1)
 
@@ -1140,6 +1200,10 @@ def train_grpo_experiment(
                     f"difficulty/{key}": value
                     for key, value in difficulty_metadata.items()
                 },
+                **{
+                    f"importance/{key}": value
+                    for key, value in importance_metadata.items()
+                },
             }
         )
         logger.info(
@@ -1167,6 +1231,17 @@ def train_grpo_experiment(
                 difficulty_metadata["selected_unseen_ratio"],
                 difficulty_metadata["selected_ema_accuracy_mean"],
                 difficulty_metadata["selected_boundary_score_mean"],
+            )
+        if importance_metadata:
+            logger.info(
+                "importance raw_mean=%.3f raw_min=%.3f raw_max=%.3f "
+                "clipped=%.3f ess_ratio=%.3f weighted_effective=%.3f",
+                importance_metadata["raw_mean"],
+                importance_metadata["raw_min"],
+                importance_metadata["raw_max"],
+                importance_metadata["clipped_fraction"],
+                importance_metadata["effective_sample_size_ratio"],
+                importance_metadata["weighted_effective_group_ratio"],
             )
 
         if not batch_complete:
@@ -1439,6 +1514,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--difficulty-warmup-groups", type=int, default=128)
     parser.add_argument("--difficulty-coverage-weight", type=float, default=0.0)
     parser.add_argument(
+        "--prompt-importance-correction",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Correct difficulty-sampled policy gradients toward a uniform "
+            "prompt objective using clipped prompt-level importance weights"
+        ),
+    )
+    parser.add_argument("--importance-weight-clip-min", type=float, default=0.25)
+    parser.add_argument("--importance-weight-clip-max", type=float, default=4.0)
+    parser.add_argument(
         "--difficulty-switch-rollout-tokens",
         type=int,
         default=0,
@@ -1534,6 +1620,16 @@ def main() -> None:
         args.difficulty_switch_rollout_tokens,
         args.difficulty_refresh_cycle_tokens,
         args.difficulty_refresh_random_tokens,
+    )
+    if args.prompt_importance_correction and args.sampling_strategy != "difficulty":
+        raise ValueError(
+            "prompt importance correction currently requires "
+            "sampling_strategy=difficulty"
+        )
+    normalize_clipped_importance_weights(
+        [1.0],
+        args.importance_weight_clip_min,
+        args.importance_weight_clip_max,
     )
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for the vLLM GRPO training entrypoint")

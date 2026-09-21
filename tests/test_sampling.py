@@ -2,6 +2,7 @@ import pytest
 
 from cs336_alignment.sampling import (
     DifficultyAwareSampler,
+    normalize_clipped_importance_weights,
     split_group_indices_by_reward_variance,
 )
 
@@ -96,6 +97,77 @@ def test_difficulty_sampler_prefers_model_boundary_without_exploration():
     assert selected == [1]
     assert metadata["selected_ema_accuracy_mean"] == pytest.approx(0.5)
     assert metadata["selected_boundary_score_mean"] == pytest.approx(1.0)
+
+
+def test_difficulty_sampler_reports_uniform_target_importance_weight():
+    sampler = DifficultyAwareSampler(
+        num_prompts=3,
+        ema_beta=0.9,
+        uniform_epsilon=0.1,
+        warmup_groups=0,
+        seed=42,
+    )
+    sampler.update([0, 1, 2], [0.0, 0.5, 1.0], step=0)
+
+    selected, _, importance_weights = sampler.sample_with_importance_weights(1)
+
+    assert selected == [1]
+    assert importance_weights == pytest.approx([5.0 / 14.0])
+
+
+def test_importance_path_preserves_difficulty_prompt_draws():
+    standard = DifficultyAwareSampler(
+        num_prompts=6,
+        ema_beta=0.5,
+        uniform_epsilon=0.1,
+        warmup_groups=0,
+        seed=7,
+    )
+    corrected = DifficultyAwareSampler(
+        num_prompts=6,
+        ema_beta=0.5,
+        uniform_epsilon=0.1,
+        warmup_groups=0,
+        seed=7,
+    )
+    accuracies = [0.0, 0.25, 0.5, 0.75, 1.0, 0.5]
+    standard.update(range(6), accuracies, step=0)
+    corrected.update(range(6), accuracies, step=0)
+
+    standard_selected, _ = standard.sample(4)
+    corrected_selected, _, _ = corrected.sample_with_importance_weights(4)
+
+    assert corrected_selected == standard_selected
+
+
+def test_difficulty_sampler_warmup_uses_unit_importance_weights():
+    sampler = DifficultyAwareSampler(
+        num_prompts=8,
+        ema_beta=0.5,
+        uniform_epsilon=0.1,
+        warmup_groups=4,
+        seed=42,
+    )
+
+    selected, _, importance_weights = sampler.sample_with_importance_weights(4)
+
+    assert len(selected) == 4
+    assert importance_weights == [1.0] * 4
+
+
+def test_importance_weights_are_clipped_and_normalized():
+    normalized, metadata = normalize_clipped_importance_weights(
+        [0.1, 1.0, 10.0],
+        clip_min=0.25,
+        clip_max=4.0,
+    )
+
+    assert normalized.mean().item() == pytest.approx(1.0)
+    assert normalized.tolist() == pytest.approx(
+        [0.25 / 1.75, 1.0 / 1.75, 4.0 / 1.75]
+    )
+    assert metadata["clipped_fraction"] == pytest.approx(2 / 3)
+    assert metadata["effective_sample_size_ratio"] < 1.0
 
 
 def test_difficulty_sampler_excludes_prompts_already_attempted_in_batch():

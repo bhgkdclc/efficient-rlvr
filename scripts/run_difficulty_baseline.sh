@@ -14,6 +14,9 @@ DIFFICULTY_WARMUP_GROUPS="${DIFFICULTY_WARMUP_GROUPS:-128}"
 DIFFICULTY_SWITCH_ROLLOUT_TOKENS="${DIFFICULTY_SWITCH_ROLLOUT_TOKENS:-0}"
 DIFFICULTY_REFRESH_CYCLE_TOKENS="${DIFFICULTY_REFRESH_CYCLE_TOKENS:-0}"
 DIFFICULTY_REFRESH_RANDOM_TOKENS="${DIFFICULTY_REFRESH_RANDOM_TOKENS:-0}"
+PROMPT_IMPORTANCE_CORRECTION="${PROMPT_IMPORTANCE_CORRECTION:-false}"
+IMPORTANCE_WEIGHT_CLIP_MIN="${IMPORTANCE_WEIGHT_CLIP_MIN:-0.25}"
+IMPORTANCE_WEIGHT_CLIP_MAX="${IMPORTANCE_WEIGHT_CLIP_MAX:-4.0}"
 SEED="${SEED:-42}"
 CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
 SAVE_FINAL_CHECKPOINT="${SAVE_FINAL_CHECKPOINT:-true}"
@@ -30,6 +33,15 @@ case "${SAVE_FINAL_CHECKPOINT}" in
     false) FINAL_CHECKPOINT_FLAG="--no-save-final-checkpoint" ;;
     *)
         echo "SAVE_FINAL_CHECKPOINT must be true or false" >&2
+        exit 2
+        ;;
+esac
+
+case "${PROMPT_IMPORTANCE_CORRECTION}" in
+    true) IMPORTANCE_CORRECTION_FLAG="--prompt-importance-correction" ;;
+    false) IMPORTANCE_CORRECTION_FLAG="--no-prompt-importance-correction" ;;
+    *)
+        echo "PROMPT_IMPORTANCE_CORRECTION must be true or false" >&2
         exit 2
         ;;
 esac
@@ -53,6 +65,9 @@ uv run --no-sync python scripts/train_grpo.py \
     --difficulty-switch-rollout-tokens "${DIFFICULTY_SWITCH_ROLLOUT_TOKENS}" \
     --difficulty-refresh-cycle-tokens "${DIFFICULTY_REFRESH_CYCLE_TOKENS}" \
     --difficulty-refresh-random-tokens "${DIFFICULTY_REFRESH_RANDOM_TOKENS}" \
+    "${IMPORTANCE_CORRECTION_FLAG}" \
+    --importance-weight-clip-min "${IMPORTANCE_WEIGHT_CLIP_MIN}" \
+    --importance-weight-clip-max "${IMPORTANCE_WEIGHT_CLIP_MAX}" \
     --reward-mode question_only \
     --format-reward-weight "${FORMAT_REWARD_WEIGHT}" \
     --answer-reward-weight "${ANSWER_REWARD_WEIGHT}" \

@@ -64,13 +64,35 @@ class DifficultyAwareSampler:
         weights: list[float],
         sample_count: int,
     ) -> list[int]:
+        selected, _ = self._weighted_sample_without_replacement_with_importance(
+            candidates,
+            weights,
+            sample_count,
+        )
+        return selected
+
+    def _weighted_sample_without_replacement_with_importance(
+        self,
+        candidates: list[int],
+        weights: list[float],
+        sample_count: int,
+    ) -> tuple[list[int], list[float]]:
+        """Sample and return approximate uniform-target importance ratios.
+
+        The target distribution is uniform over the candidates remaining at
+        each draw.  Because batches are tiny relative to the prompt pool, the
+        per-draw ratio is a low-variance approximation to full inclusion-
+        probability correction for weighted sampling without replacement.
+        """
         selected: list[int] = []
+        importance_weights: list[float] = []
         candidates = candidates.copy()
         weights = weights.copy()
         for _ in range(sample_count):
             total_weight = sum(weights)
             if total_weight <= 0.0:
                 selected_position = self.rng.randrange(len(candidates))
+                behavior_probability = 1.0 / len(candidates)
             else:
                 threshold = self.rng.random() * total_weight
                 cumulative = 0.0
@@ -80,15 +102,31 @@ class DifficultyAwareSampler:
                     if cumulative > threshold:
                         selected_position = position
                         break
+                behavior_probability = weights[selected_position] / total_weight
+            target_probability = 1.0 / len(candidates)
             selected.append(candidates.pop(selected_position))
+            importance_weights.append(
+                target_probability / behavior_probability
+            )
             weights.pop(selected_position)
-        return selected
+        return selected, importance_weights
 
     def _difficulty_sample(
         self,
         sample_count: int,
         excluded: set[int],
     ) -> list[int]:
+        selected, _ = self._difficulty_sample_with_importance(
+            sample_count,
+            excluded,
+        )
+        return selected
+
+    def _difficulty_sample_with_importance(
+        self,
+        sample_count: int,
+        excluded: set[int],
+    ) -> tuple[list[int], list[float]]:
         candidates = [
             index for index in range(self.num_prompts) if index not in excluded
         ]
@@ -125,7 +163,7 @@ class DifficultyAwareSampler:
                 boundary_probabilities, coverage_probabilities
             )
         ]
-        return self._weighted_sample_without_replacement(
+        return self._weighted_sample_without_replacement_with_importance(
             candidates, weights, sample_count
         )
 
@@ -176,6 +214,27 @@ class DifficultyAwareSampler:
         sample_count: int,
         excluded: set[int] | None = None,
     ) -> tuple[list[int], dict[str, float | int | bool | None]]:
+        selected, metadata, _ = self.sample_with_importance_weights(
+            sample_count,
+            excluded,
+        )
+        return selected, metadata
+
+    def sample_with_importance_weights(
+        self,
+        sample_count: int,
+        excluded: set[int] | None = None,
+    ) -> tuple[
+        list[int],
+        dict[str, float | int | bool | None],
+        list[float],
+    ]:
+        """Sample prompts and estimate uniform-target importance weights.
+
+        Initial unseen-prompt warmup draws receive unit weight.  Once the
+        difficulty distribution is active, each returned weight is the ratio
+        between the uniform and behavior probabilities at that draw.
+        """
         if sample_count <= 0:
             raise ValueError("sample_count must be positive")
         excluded = set() if excluded is None else set(excluded)
@@ -186,6 +245,7 @@ class DifficultyAwareSampler:
 
         observed_before = self.observed_prompt_count
         selected: list[int] = []
+        importance_weights: list[float] = []
         warmup_needed = min(
             sample_count,
             max(0, self.warmup_groups - observed_before),
@@ -198,17 +258,24 @@ class DifficultyAwareSampler:
             ]
             warmup_needed = min(warmup_needed, len(unseen))
             selected.extend(self.rng.sample(unseen, warmup_needed))
+            importance_weights.extend([1.0] * warmup_needed)
 
         remaining = sample_count - len(selected)
         if remaining:
-            selected.extend(
-                self._difficulty_sample(
+            difficulty_selected, difficulty_importance_weights = (
+                self._difficulty_sample_with_importance(
                     remaining,
                     excluded | set(selected),
                 )
             )
+            selected.extend(difficulty_selected)
+            importance_weights.extend(difficulty_importance_weights)
 
-        return selected, self._selection_metadata(selected, observed_before)
+        return (
+            selected,
+            self._selection_metadata(selected, observed_before),
+            importance_weights,
+        )
 
     def sample_uniform(
         self,
@@ -328,6 +395,43 @@ class DifficultyAwareSampler:
             json.dumps(self.state_dict(), indent=2), encoding="utf-8"
         )
         temporary_path.replace(path)
+
+
+def normalize_clipped_importance_weights(
+    raw_weights: torch.Tensor | Sequence[float],
+    clip_min: float,
+    clip_max: float,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Clip prompt-level importance ratios and normalize them to mean one."""
+    if clip_min <= 0.0:
+        raise ValueError("clip_min must be positive")
+    if clip_max < clip_min:
+        raise ValueError("clip_max must be greater than or equal to clip_min")
+
+    weights = torch.as_tensor(raw_weights, dtype=torch.float32).flatten()
+    if weights.numel() == 0:
+        raise ValueError("raw_weights must not be empty")
+    if not torch.isfinite(weights).all() or not torch.all(weights > 0.0):
+        raise ValueError("raw_weights must be finite and positive")
+
+    clipped = weights.clamp(min=clip_min, max=clip_max)
+    normalized = clipped / clipped.mean()
+    effective_sample_size = (
+        normalized.sum().square() / normalized.square().sum()
+    ).item()
+    metadata = {
+        "raw_mean": weights.mean().item(),
+        "raw_min": weights.min().item(),
+        "raw_max": weights.max().item(),
+        "clipped_fraction": (weights != clipped).float().mean().item(),
+        "normalized_mean": normalized.mean().item(),
+        "normalized_std": normalized.std(correction=0).item(),
+        "normalized_min": normalized.min().item(),
+        "normalized_max": normalized.max().item(),
+        "effective_sample_size": effective_sample_size,
+        "effective_sample_size_ratio": effective_sample_size / weights.numel(),
+    }
+    return normalized, metadata
 
 
 def split_group_indices_by_reward_variance(

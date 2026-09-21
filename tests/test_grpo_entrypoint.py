@@ -82,6 +82,26 @@ def test_parser_accepts_difficulty_sampling_configuration():
     assert args.difficulty_coverage_weight == 0.3
 
 
+def test_parser_accepts_prompt_importance_correction():
+    args = build_parser().parse_args(
+        [
+            "--output-path",
+            "unused",
+            "--sampling-strategy",
+            "difficulty",
+            "--prompt-importance-correction",
+            "--importance-weight-clip-min",
+            "0.25",
+            "--importance-weight-clip-max",
+            "4.0",
+        ]
+    )
+
+    assert args.prompt_importance_correction is True
+    assert args.importance_weight_clip_min == 0.25
+    assert args.importance_weight_clip_max == 4.0
+
+
 def test_parser_accepts_difficulty_then_random_schedule():
     args = build_parser().parse_args(
         [
