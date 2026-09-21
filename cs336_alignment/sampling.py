@@ -210,6 +210,33 @@ class DifficultyAwareSampler:
 
         return selected, self._selection_metadata(selected, observed_before)
 
+    def sample_uniform(
+        self,
+        sample_count: int,
+        excluded: set[int] | None = None,
+    ) -> tuple[list[int], dict[str, float | int | bool | None]]:
+        """Sample prompts uniformly while retaining difficulty diagnostics.
+
+        This is used by scheduled samplers after they switch away from
+        difficulty-weighted selection.  Keeping the sampler state live during
+        the uniform phase lets us measure prompt coverage and update EMA values
+        without allowing those values to influence selection.
+        """
+        if sample_count <= 0:
+            raise ValueError("sample_count must be positive")
+        excluded = set() if excluded is None else set(excluded)
+        if any(index < 0 or index >= self.num_prompts for index in excluded):
+            raise IndexError("excluded prompt index out of range")
+        candidates = [
+            index for index in range(self.num_prompts) if index not in excluded
+        ]
+        if sample_count > len(candidates):
+            raise ValueError("sample_count cannot exceed available prompts")
+
+        observed_before = self.observed_prompt_count
+        selected = self.rng.sample(candidates, sample_count)
+        return selected, self._selection_metadata(selected, observed_before)
+
     def sample_hybrid(
         self,
         sample_count: int,

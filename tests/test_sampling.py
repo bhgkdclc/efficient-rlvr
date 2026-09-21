@@ -113,6 +113,25 @@ def test_difficulty_sampler_excludes_prompts_already_attempted_in_batch():
     assert set(selected) == {2, 3}
 
 
+def test_difficulty_sampler_can_sample_uniformly_with_metadata():
+    sampler = DifficultyAwareSampler(
+        num_prompts=8,
+        ema_beta=0.5,
+        uniform_epsilon=0.1,
+        warmup_groups=0,
+        seed=42,
+    )
+    sampler.update([0, 1], [0.25, 0.75], step=0)
+
+    selected, metadata = sampler.sample_uniform(4, excluded={7})
+
+    assert len(selected) == 4
+    assert len(set(selected)) == 4
+    assert 7 not in selected
+    assert metadata["observed_prompts_before"] == 2
+    assert metadata["selected_seen_ratio"] in {0.0, 0.25, 0.5}
+
+
 def test_hybrid_sampler_uses_explicit_uniform_and_difficulty_strata():
     sampler = DifficultyAwareSampler(
         num_prompts=20,

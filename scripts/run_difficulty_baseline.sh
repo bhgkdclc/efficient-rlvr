@@ -11,6 +11,7 @@ DIFFICULTY_EMA_BETA="${DIFFICULTY_EMA_BETA:-0.9}"
 DIFFICULTY_COVERAGE_WEIGHT="${DIFFICULTY_COVERAGE_WEIGHT:-0.0}"
 SAMPLING_UNIFORM_EPSILON="${SAMPLING_UNIFORM_EPSILON:-0.1}"
 DIFFICULTY_WARMUP_GROUPS="${DIFFICULTY_WARMUP_GROUPS:-128}"
+DIFFICULTY_SWITCH_ROLLOUT_TOKENS="${DIFFICULTY_SWITCH_ROLLOUT_TOKENS:-0}"
 SEED="${SEED:-42}"
 CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
 SAVE_FINAL_CHECKPOINT="${SAVE_FINAL_CHECKPOINT:-true}"
@@ -47,6 +48,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --difficulty-coverage-weight "${DIFFICULTY_COVERAGE_WEIGHT}" \
     --sampling-uniform-epsilon "${SAMPLING_UNIFORM_EPSILON}" \
     --difficulty-warmup-groups "${DIFFICULTY_WARMUP_GROUPS}" \
+    --difficulty-switch-rollout-tokens "${DIFFICULTY_SWITCH_ROLLOUT_TOKENS}" \
     --reward-mode question_only \
     --format-reward-weight "${FORMAT_REWARD_WEIGHT}" \
     --answer-reward-weight "${ANSWER_REWARD_WEIGHT}" \

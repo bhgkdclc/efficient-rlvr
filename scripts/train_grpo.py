@@ -46,9 +46,30 @@ GSM_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 DIFFICULTY_SAMPLING_STRATEGIES = {
     "difficulty",
     "difficulty_dynamic",
+    "difficulty_then_random",
     "hybrid",
 }
 DYNAMIC_FILTERING_STRATEGIES = {"dynamic", "difficulty_dynamic"}
+
+
+def resolve_sampling_strategy(
+    configured_strategy: str,
+    cumulative_rollout_tokens: int,
+    switch_rollout_tokens: int,
+) -> str:
+    """Resolve the active phase of a token-budgeted sampling schedule."""
+    if configured_strategy != "difficulty_then_random":
+        return configured_strategy
+    if switch_rollout_tokens <= 0:
+        raise ValueError(
+            "difficulty_switch_rollout_tokens must be positive for "
+            "difficulty_then_random sampling"
+        )
+    return (
+        "difficulty"
+        if cumulative_rollout_tokens < switch_rollout_tokens
+        else "random"
+    )
 
 
 def extract_answer(completion: str) -> str | None:
@@ -430,6 +451,8 @@ def run_evaluation(
     model_step: int,
     output_path: Path,
     save: bool,
+    evaluation_stage: str | None = None,
+    cumulative_rollout_tokens: int | None = None,
 ) -> None:
     eval_data = select_eval_data(test_data, sample_count)
     load_policy_into_vllm_instance(model, vllm, vllm_device)
@@ -441,8 +464,7 @@ def run_evaluation(
         eval_sampling_params,
     )
     accuracy = overview["correct"] / max(overview["count"], 1)
-    experiment_logger.log(
-        {
+    metrics: dict[str, Any] = {
             "event": "evaluation",
             "model_step": model_step,
             "eval/accuracy": accuracy,
@@ -453,7 +475,11 @@ def run_evaluation(
             "eval/count": overview["count"],
             **{f"eval/{key}": value for key, value in token_counts.items()},
         }
-    )
+    if evaluation_stage is not None:
+        metrics["eval/stage"] = evaluation_stage
+    if cumulative_rollout_tokens is not None:
+        metrics["rollout/cumulative_rollout_tokens"] = cumulative_rollout_tokens
+    experiment_logger.log(metrics)
     logger.info("eval model_step=%d accuracy=%.4f", model_step, accuracy)
     if save:
         save_checkpoint(model, tokenizer, output_path, model_step)
@@ -569,6 +595,7 @@ def train_grpo_experiment(
     training_start = time.time()
     last_evaluated_model_step = 0 if args.eval_before_training else -1
     completed_grpo_steps = 0
+    sampling_switch_completed = False
 
     for grpo_step in range(args.n_grpo_steps):
         if (
@@ -577,6 +604,53 @@ def train_grpo_experiment(
         ):
             logger.info("reached total rollout-token budget")
             break
+
+        active_sampling_strategy = resolve_sampling_strategy(
+            args.sampling_strategy,
+            cumulative_rollout_tokens,
+            args.difficulty_switch_rollout_tokens,
+        )
+        if (
+            args.sampling_strategy == "difficulty_then_random"
+            and active_sampling_strategy == "random"
+            and not sampling_switch_completed
+        ):
+            logger.info(
+                "switching sampling strategy difficulty->random at "
+                "cumulative_rollout_tokens=%d requested_switch=%d",
+                cumulative_rollout_tokens,
+                args.difficulty_switch_rollout_tokens,
+            )
+            experiment_logger.log(
+                {
+                    "event": "sampling_switch",
+                    "model_step": completed_grpo_steps,
+                    "sampling/from_strategy": "difficulty",
+                    "sampling/to_strategy": "random",
+                    "sampling/requested_switch_rollout_tokens": (
+                        args.difficulty_switch_rollout_tokens
+                    ),
+                    "rollout/cumulative_rollout_tokens": cumulative_rollout_tokens,
+                }
+            )
+            if args.eval_at_sampling_switch:
+                run_evaluation(
+                    model=model,
+                    tokenizer=tokenizer,
+                    vllm=vllm,
+                    vllm_device=args.vllm_device,
+                    reward_fn=reward_fn,
+                    test_data=test_data,
+                    sample_count=args.final_eval_samples,
+                    eval_sampling_params=eval_sampling_params,
+                    experiment_logger=experiment_logger,
+                    model_step=completed_grpo_steps,
+                    output_path=Path(args.output_path),
+                    save=False,
+                    evaluation_stage="sampling_switch",
+                    cumulative_rollout_tokens=cumulative_rollout_tokens,
+                )
+            sampling_switch_completed = True
 
         load_policy_into_vllm_instance(model, vllm, args.vllm_device)
         token_counts = empty_rollout_token_counts()
@@ -597,15 +671,24 @@ def train_grpo_experiment(
         hybrid_uniform_group_count = 0
         attempted_prompt_indices: set[int] = set()
 
-        if args.sampling_strategy == "dynamic":
+        if active_sampling_strategy == "dynamic":
             candidate_indices = list(range(len(train_data)))
 
         while accepted_groups < prompts_per_rollout_batch:
             groups_needed = prompts_per_rollout_batch - accepted_groups
-            if args.sampling_strategy == "random":
-                rollout_dataset = random.sample(train_data, groups_needed)
-                round_prompt_indices: list[int] = []
-            elif args.sampling_strategy == "dynamic":
+            if active_sampling_strategy == "random":
+                if difficulty_sampler is None:
+                    rollout_dataset = random.sample(train_data, groups_needed)
+                    round_prompt_indices: list[int] = []
+                else:
+                    (
+                        round_prompt_indices,
+                        round_difficulty_metadata,
+                    ) = difficulty_sampler.sample_uniform(groups_needed)
+                    rollout_dataset = [
+                        train_data[index] for index in round_prompt_indices
+                    ]
+            elif active_sampling_strategy == "dynamic":
                 if groups_needed > len(candidate_indices):
                     raise RuntimeError(
                         "dynamic sampling exhausted the prompt pool before collecting "
@@ -622,7 +705,7 @@ def train_grpo_experiment(
                 ]
                 rollout_dataset = [train_data[index] for index in selected_indices]
                 round_prompt_indices = selected_indices
-            elif args.sampling_strategy == "difficulty":
+            elif active_sampling_strategy == "difficulty":
                 assert difficulty_sampler is not None
                 round_prompt_indices, round_difficulty_metadata = (
                     difficulty_sampler.sample(groups_needed)
@@ -630,7 +713,7 @@ def train_grpo_experiment(
                 rollout_dataset = [
                     train_data[index] for index in round_prompt_indices
                 ]
-            elif args.sampling_strategy == "difficulty_dynamic":
+            elif active_sampling_strategy == "difficulty_dynamic":
                 assert difficulty_sampler is not None
                 available_prompts = len(train_data) - len(attempted_prompt_indices)
                 if groups_needed > available_prompts:
@@ -649,7 +732,7 @@ def train_grpo_experiment(
                     train_data[index] for index in round_prompt_indices
                 ]
             else:
-                assert args.sampling_strategy == "hybrid"
+                assert active_sampling_strategy == "hybrid"
                 assert difficulty_sampler is not None
                 (
                     round_prompt_indices,
@@ -774,7 +857,7 @@ def train_grpo_experiment(
                         ),
                     }
                 )
-                if args.sampling_strategy == "hybrid":
+                if active_sampling_strategy == "hybrid":
                     uniform_positions = range(hybrid_uniform_group_count)
                     difficulty_positions = range(
                         hybrid_uniform_group_count,
@@ -842,7 +925,7 @@ def train_grpo_experiment(
                     Path(args.output_path) / "sampler_state.json"
                 )
 
-            if args.sampling_strategy not in DYNAMIC_FILTERING_STRATEGIES:
+            if active_sampling_strategy not in DYNAMIC_FILTERING_STRATEGIES:
                 accepted_indices = list(range(len(outputs)))
             else:
                 accepted_indices = effective_indices
@@ -872,7 +955,7 @@ def train_grpo_experiment(
                         discarded_groups * args.group_size,
                     )
 
-            if args.sampling_strategy not in DYNAMIC_FILTERING_STRATEGIES:
+            if active_sampling_strategy not in DYNAMIC_FILTERING_STRATEGIES:
                 break
             if accepted_groups < prompts_per_rollout_batch:
                 resample_rounds += 1
@@ -942,6 +1025,7 @@ def train_grpo_experiment(
                 "rollout/cumulative_generated_response_tokens": cumulative_response_tokens,
                 "rollout/cumulative_rollout_tokens": cumulative_rollout_tokens,
                 "sampling/strategy": args.sampling_strategy,
+                "sampling/active_strategy": active_sampling_strategy,
                 "sampling/batch_complete": batch_complete,
                 "sampling/attempted_groups": attempted_groups,
                 "sampling/accepted_groups": accepted_groups,
@@ -1263,6 +1347,7 @@ def build_parser() -> argparse.ArgumentParser:
             "difficulty",
             "difficulty_dynamic",
             "hybrid",
+            "difficulty_then_random",
         ],
         default="random",
     )
@@ -1270,6 +1355,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sampling-uniform-epsilon", type=float, default=0.1)
     parser.add_argument("--difficulty-warmup-groups", type=int, default=128)
     parser.add_argument("--difficulty-coverage-weight", type=float, default=0.0)
+    parser.add_argument(
+        "--difficulty-switch-rollout-tokens",
+        type=int,
+        default=0,
+        help=(
+            "Switch difficulty_then_random sampling to uniform random at the "
+            "first batch boundary at or after this cumulative rollout-token count"
+        ),
+    )
+    parser.add_argument(
+        "--eval-at-sampling-switch",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run a full-size evaluation when the scheduled sampler switches phases",
+    )
     parser.add_argument("--hybrid-uniform-fraction", type=float, default=0.5)
     parser.add_argument("--n-grpo-steps", type=int, default=200)
     parser.add_argument("--rollout-batch-size", type=int, default=256)

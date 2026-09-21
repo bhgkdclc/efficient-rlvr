@@ -11,6 +11,7 @@ from scripts.train_grpo import (
     load_dataset_and_format_qa,
     rollout_group_token_counts,
     rollout_token_counts,
+    resolve_sampling_strategy,
 )
 
 
@@ -79,6 +80,38 @@ def test_parser_accepts_difficulty_sampling_configuration():
     assert args.sampling_uniform_epsilon == 0.2
     assert args.difficulty_warmup_groups == 64
     assert args.difficulty_coverage_weight == 0.3
+
+
+def test_parser_accepts_difficulty_then_random_schedule():
+    args = build_parser().parse_args(
+        [
+            "--output-path",
+            "unused",
+            "--sampling-strategy",
+            "difficulty_then_random",
+            "--difficulty-switch-rollout-tokens",
+            "2000000",
+        ]
+    )
+
+    assert args.sampling_strategy == "difficulty_then_random"
+    assert args.difficulty_switch_rollout_tokens == 2_000_000
+    assert args.eval_at_sampling_switch is True
+
+
+def test_difficulty_then_random_switches_at_token_boundary():
+    assert resolve_sampling_strategy(
+        "difficulty_then_random", 1_999_999, 2_000_000
+    ) == "difficulty"
+    assert resolve_sampling_strategy(
+        "difficulty_then_random", 2_000_000, 2_000_000
+    ) == "random"
+    assert resolve_sampling_strategy("random", 2_000_000, 0) == "random"
+
+
+def test_difficulty_then_random_requires_positive_switch_budget():
+    with pytest.raises(ValueError, match="must be positive"):
+        resolve_sampling_strategy("difficulty_then_random", 0, 0)
 
 
 def test_parser_accepts_hybrid_sampling_configuration():
