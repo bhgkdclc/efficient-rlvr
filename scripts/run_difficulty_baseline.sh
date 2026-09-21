@@ -20,6 +20,7 @@ IMPORTANCE_WEIGHT_CLIP_MAX="${IMPORTANCE_WEIGHT_CLIP_MAX:-4.0}"
 SEED="${SEED:-42}"
 CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
 SAVE_FINAL_CHECKPOINT="${SAVE_FINAL_CHECKPOINT:-true}"
+MAX_ROLLOUT_TOKENS="${MAX_ROLLOUT_TOKENS:-4000000}"
 FORMAT_REWARD_WEIGHT="${FORMAT_REWARD_WEIGHT:-0.1}"
 ANSWER_REWARD_WEIGHT="${ANSWER_REWARD_WEIGHT:-1.0}"
 ROLLOUT_BATCH_SIZE="${ROLLOUT_BATCH_SIZE:-64}"
@@ -81,7 +82,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --gradient-accumulation-steps "${GRADIENT_ACCUMULATION_STEPS}" \
     --sampling-temperature 1.0 \
     --sampling-max-tokens 512 \
-    --max-rollout-tokens 4000000 \
+    --max-rollout-tokens "${MAX_ROLLOUT_TOKENS}" \
     --eval-steps 10 \
     --checkpoint-steps "${CHECKPOINT_STEPS}" \
     --eval-samples 256 \

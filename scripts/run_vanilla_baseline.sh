@@ -9,6 +9,17 @@ OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/vanilla_random_${RUN_TAG}}"
 WANDB_MODE="${WANDB_MODE:-offline}"
 SEED="${SEED:-42}"
 CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
+MAX_ROLLOUT_TOKENS="${MAX_ROLLOUT_TOKENS:-4000000}"
+SAVE_FINAL_CHECKPOINT="${SAVE_FINAL_CHECKPOINT:-true}"
+
+case "${SAVE_FINAL_CHECKPOINT}" in
+    true) FINAL_CHECKPOINT_FLAG="--save-final-checkpoint" ;;
+    false) FINAL_CHECKPOINT_FLAG="--no-save-final-checkpoint" ;;
+    *)
+        echo "SAVE_FINAL_CHECKPOINT must be true or false" >&2
+        exit 2
+        ;;
+esac
 
 export HF_HOME="${HF_HOME:-${PERSIST_ROOT}/huggingface}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${PERSIST_ROOT}/uv}"
@@ -35,13 +46,14 @@ uv run --no-sync python scripts/train_grpo.py \
     --gradient-accumulation-steps 64 \
     --sampling-temperature 1.0 \
     --sampling-max-tokens 512 \
-    --max-rollout-tokens 4000000 \
+    --max-rollout-tokens "${MAX_ROLLOUT_TOKENS}" \
     --eval-steps 10 \
     --checkpoint-steps "${CHECKPOINT_STEPS}" \
     --eval-samples 256 \
     --final-eval-samples 0 \
     --eval-temperature 0.0 \
     --eval-max-tokens 1024 \
+    "${FINAL_CHECKPOINT_FLAG}" \
     --train-device cuda:0 \
     --vllm-device cuda:0 \
     --vllm-gpu-memory-utilization 0.4 \
