@@ -54,6 +54,28 @@ DIFFICULTY_SAMPLING_STRATEGIES = {
 DYNAMIC_FILTERING_STRATEGIES = {"dynamic", "difficulty_dynamic"}
 
 
+def resolve_group_importance_weights(
+    weights: list[float] | None,
+    group_count: int,
+) -> list[float]:
+    """Return one importance weight per sampled prompt group.
+
+    Uniform/random sampling does not construct prompt indices or proposal
+    weights, so its default must be sized from the sampled dataset rather than
+    from the optional prompt-index list.
+    """
+    if group_count < 0:
+        raise ValueError("group_count must be non-negative")
+    if weights is None:
+        return [1.0] * group_count
+    if len(weights) != group_count:
+        raise ValueError(
+            "importance-weight count does not match sampled prompt groups: "
+            f"{len(weights)} != {group_count}"
+        )
+    return weights
+
+
 def resolve_sampling_strategy(
     configured_strategy: str,
     cumulative_rollout_tokens: int,
@@ -838,10 +860,10 @@ def train_grpo_experiment(
                     train_data[index] for index in round_prompt_indices
                 ]
 
-            if round_group_importance_weights is None:
-                round_group_importance_weights = [1.0] * len(
-                    round_prompt_indices
-                )
+            round_group_importance_weights = resolve_group_importance_weights(
+                round_group_importance_weights,
+                len(rollout_dataset),
+            )
 
             rollout_prompts = [item["prompt"] for item in rollout_dataset]
             rollout_answers = [item["answer"] for item in rollout_dataset]

@@ -11,6 +11,7 @@ from scripts.train_grpo import (
     load_dataset_and_format_qa,
     rollout_group_token_counts,
     rollout_token_counts,
+    resolve_group_importance_weights,
     resolve_sampling_strategy,
 )
 
@@ -100,6 +101,15 @@ def test_parser_accepts_prompt_importance_correction():
     assert args.prompt_importance_correction is True
     assert args.importance_weight_clip_min == 0.25
     assert args.importance_weight_clip_max == 4.0
+
+
+def test_random_sampling_gets_one_unit_importance_weight_per_group():
+    assert resolve_group_importance_weights(None, 8) == [1.0] * 8
+
+
+def test_group_importance_weight_count_must_match_sampled_groups():
+    with pytest.raises(ValueError, match="does not match"):
+        resolve_group_importance_weights([1.0], 8)
 
 
 def test_parser_accepts_difficulty_then_random_schedule():
