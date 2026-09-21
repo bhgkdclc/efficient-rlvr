@@ -920,6 +920,10 @@ def train_grpo_experiment(
                     args.zero_variance_epsilon,
                 )
             )
+            # Effectiveness is a property of every sampled group, including
+            # Vanilla Random groups. Keep this outside sampler-specific
+            # diagnostics so the common acceptance path can always use it.
+            effective_index_set = set(effective_indices)
             if difficulty_sampler is not None:
                 group_accuracies = compute_group_answer_accuracies(
                     reward_fn,
@@ -935,7 +939,6 @@ def train_grpo_experiment(
                 seen_group_accuracies = [
                     group_accuracies[position] for position in seen_group_positions
                 ]
-                effective_index_set = set(effective_indices)
                 difficulty_sampler.update(
                     round_prompt_indices,
                     group_accuracies,

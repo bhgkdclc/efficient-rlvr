@@ -36,7 +36,8 @@ uv run --no-sync python scripts/train_grpo.py \
     --eval-samples 8 \
     --final-eval-samples 8 \
     --eval-steps 1 \
-    --checkpoint-steps 1 \
+    --checkpoint-steps 0 \
+    --no-save-final-checkpoint \
     --no-eval-before-training \
     --train-device cuda:0 \
     --vllm-device cuda:0 \
