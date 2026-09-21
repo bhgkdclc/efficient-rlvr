@@ -114,6 +114,69 @@ def test_difficulty_then_random_requires_positive_switch_budget():
         resolve_sampling_strategy("difficulty_then_random", 0, 0)
 
 
+def test_parser_accepts_periodic_random_refresh_schedule():
+    args = build_parser().parse_args(
+        [
+            "--output-path",
+            "unused",
+            "--sampling-strategy",
+            "difficulty_periodic_random",
+            "--difficulty-refresh-cycle-tokens",
+            "1000000",
+            "--difficulty-refresh-random-tokens",
+            "200000",
+        ]
+    )
+
+    assert args.sampling_strategy == "difficulty_periodic_random"
+    assert args.difficulty_refresh_cycle_tokens == 1_000_000
+    assert args.difficulty_refresh_random_tokens == 200_000
+
+
+@pytest.mark.parametrize(
+    ("rollout_tokens", "expected"),
+    [
+        (0, "random"),
+        (199_999, "random"),
+        (200_000, "difficulty"),
+        (999_999, "difficulty"),
+        (1_000_000, "random"),
+        (1_199_999, "random"),
+        (1_200_000, "difficulty"),
+        (3_999_999, "difficulty"),
+    ],
+)
+def test_periodic_random_refresh_resolves_cycle_phase(
+    rollout_tokens,
+    expected,
+):
+    assert resolve_sampling_strategy(
+        "difficulty_periodic_random",
+        rollout_tokens,
+        0,
+        1_000_000,
+        200_000,
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    ("cycle_tokens", "random_tokens"),
+    [(0, 200_000), (1_000_000, 0), (1_000_000, 1_000_000)],
+)
+def test_periodic_random_refresh_rejects_invalid_schedule(
+    cycle_tokens,
+    random_tokens,
+):
+    with pytest.raises(ValueError, match="difficulty_refresh"):
+        resolve_sampling_strategy(
+            "difficulty_periodic_random",
+            0,
+            0,
+            cycle_tokens,
+            random_tokens,
+        )
+
+
 def test_parser_accepts_hybrid_sampling_configuration():
     args = build_parser().parse_args(
         [

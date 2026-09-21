@@ -46,6 +46,7 @@ GSM_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 DIFFICULTY_SAMPLING_STRATEGIES = {
     "difficulty",
     "difficulty_dynamic",
+    "difficulty_periodic_random",
     "difficulty_then_random",
     "hybrid",
 }
@@ -56,20 +57,39 @@ def resolve_sampling_strategy(
     configured_strategy: str,
     cumulative_rollout_tokens: int,
     switch_rollout_tokens: int,
+    refresh_cycle_tokens: int = 0,
+    refresh_random_tokens: int = 0,
 ) -> str:
     """Resolve the active phase of a token-budgeted sampling schedule."""
-    if configured_strategy != "difficulty_then_random":
-        return configured_strategy
-    if switch_rollout_tokens <= 0:
-        raise ValueError(
-            "difficulty_switch_rollout_tokens must be positive for "
-            "difficulty_then_random sampling"
+    if configured_strategy == "difficulty_then_random":
+        if switch_rollout_tokens <= 0:
+            raise ValueError(
+                "difficulty_switch_rollout_tokens must be positive for "
+                "difficulty_then_random sampling"
+            )
+        return (
+            "difficulty"
+            if cumulative_rollout_tokens < switch_rollout_tokens
+            else "random"
         )
-    return (
-        "difficulty"
-        if cumulative_rollout_tokens < switch_rollout_tokens
-        else "random"
-    )
+    if configured_strategy == "difficulty_periodic_random":
+        if refresh_cycle_tokens <= 0:
+            raise ValueError(
+                "difficulty_refresh_cycle_tokens must be positive for "
+                "difficulty_periodic_random sampling"
+            )
+        if not 0 < refresh_random_tokens < refresh_cycle_tokens:
+            raise ValueError(
+                "difficulty_refresh_random_tokens must be positive and smaller "
+                "than difficulty_refresh_cycle_tokens"
+            )
+        cycle_offset = cumulative_rollout_tokens % refresh_cycle_tokens
+        return (
+            "random"
+            if cycle_offset < refresh_random_tokens
+            else "difficulty"
+        )
+    return configured_strategy
 
 
 def extract_answer(completion: str) -> str | None:
@@ -596,6 +616,7 @@ def train_grpo_experiment(
     last_evaluated_model_step = 0 if args.eval_before_training else -1
     completed_grpo_steps = 0
     sampling_switch_completed = False
+    previous_active_sampling_strategy: str | None = None
 
     for grpo_step in range(args.n_grpo_steps):
         if (
@@ -609,7 +630,64 @@ def train_grpo_experiment(
             args.sampling_strategy,
             cumulative_rollout_tokens,
             args.difficulty_switch_rollout_tokens,
+            args.difficulty_refresh_cycle_tokens,
+            args.difficulty_refresh_random_tokens,
         )
+        schedule_cycle_index = None
+        schedule_cycle_offset_tokens = None
+        if args.sampling_strategy == "difficulty_periodic_random":
+            schedule_cycle_index = (
+                cumulative_rollout_tokens
+                // args.difficulty_refresh_cycle_tokens
+            )
+            schedule_cycle_offset_tokens = (
+                cumulative_rollout_tokens
+                % args.difficulty_refresh_cycle_tokens
+            )
+            if previous_active_sampling_strategy is None:
+                logger.info(
+                    "starting periodic sampling strategy=%s cycle=%d "
+                    "offset_tokens=%d cycle_tokens=%d random_tokens=%d",
+                    active_sampling_strategy,
+                    schedule_cycle_index,
+                    schedule_cycle_offset_tokens,
+                    args.difficulty_refresh_cycle_tokens,
+                    args.difficulty_refresh_random_tokens,
+                )
+            elif active_sampling_strategy != previous_active_sampling_strategy:
+                logger.info(
+                    "switching periodic sampling strategy %s->%s at "
+                    "cumulative_rollout_tokens=%d cycle=%d offset_tokens=%d",
+                    previous_active_sampling_strategy,
+                    active_sampling_strategy,
+                    cumulative_rollout_tokens,
+                    schedule_cycle_index,
+                    schedule_cycle_offset_tokens,
+                )
+                experiment_logger.log(
+                    {
+                        "event": "sampling_phase_switch",
+                        "model_step": completed_grpo_steps,
+                        "sampling/from_strategy": (
+                            previous_active_sampling_strategy
+                        ),
+                        "sampling/to_strategy": active_sampling_strategy,
+                        "sampling/schedule_cycle_index": schedule_cycle_index,
+                        "sampling/schedule_cycle_offset_tokens": (
+                            schedule_cycle_offset_tokens
+                        ),
+                        "sampling/refresh_cycle_tokens": (
+                            args.difficulty_refresh_cycle_tokens
+                        ),
+                        "sampling/refresh_random_tokens": (
+                            args.difficulty_refresh_random_tokens
+                        ),
+                        "rollout/cumulative_rollout_tokens": (
+                            cumulative_rollout_tokens
+                        ),
+                    }
+                )
+        previous_active_sampling_strategy = active_sampling_strategy
         if (
             args.sampling_strategy == "difficulty_then_random"
             and active_sampling_strategy == "random"
@@ -1026,6 +1104,10 @@ def train_grpo_experiment(
                 "rollout/cumulative_rollout_tokens": cumulative_rollout_tokens,
                 "sampling/strategy": args.sampling_strategy,
                 "sampling/active_strategy": active_sampling_strategy,
+                "sampling/schedule_cycle_index": schedule_cycle_index,
+                "sampling/schedule_cycle_offset_tokens": (
+                    schedule_cycle_offset_tokens
+                ),
                 "sampling/batch_complete": batch_complete,
                 "sampling/attempted_groups": attempted_groups,
                 "sampling/accepted_groups": accepted_groups,
@@ -1346,6 +1428,7 @@ def build_parser() -> argparse.ArgumentParser:
             "dynamic",
             "difficulty",
             "difficulty_dynamic",
+            "difficulty_periodic_random",
             "hybrid",
             "difficulty_then_random",
         ],
@@ -1369,6 +1452,24 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Run a full-size evaluation when the scheduled sampler switches phases",
+    )
+    parser.add_argument(
+        "--difficulty-refresh-cycle-tokens",
+        type=int,
+        default=0,
+        help=(
+            "Token length of each difficulty_periodic_random cycle; the cycle "
+            "starts with a uniform-random refresh window"
+        ),
+    )
+    parser.add_argument(
+        "--difficulty-refresh-random-tokens",
+        type=int,
+        default=0,
+        help=(
+            "Approximate rollout-token duration of the uniform-random refresh "
+            "window at the start of each periodic cycle"
+        ),
     )
     parser.add_argument("--hybrid-uniform-fraction", type=float, default=0.5)
     parser.add_argument("--n-grpo-steps", type=int, default=200)
@@ -1427,6 +1528,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    resolve_sampling_strategy(
+        args.sampling_strategy,
+        0,
+        args.difficulty_switch_rollout_tokens,
+        args.difficulty_refresh_cycle_tokens,
+        args.difficulty_refresh_random_tokens,
+    )
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required for the vLLM GRPO training entrypoint")
 
