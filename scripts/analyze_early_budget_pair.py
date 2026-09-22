@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -43,11 +44,42 @@ def summarize(run_dir: Path) -> dict[str, Any]:
         for record in evaluations
         if int(record["eval/count"]) == full_count
     ][-1]
+    warmup_groups = int(config.get("difficulty_warmup_groups", 0))
+    recorded_prompt_indices = [
+        int(index)
+        for record in rollouts
+        for index in record.get("sampling/prompt_indices", [])
+    ]
+    warmup_prompt_indices = recorded_prompt_indices[:warmup_groups]
+    warmup_prompt_hash = (
+        hashlib.sha256(
+            json.dumps(warmup_prompt_indices, separators=(",", ":")).encode()
+        ).hexdigest()
+        if len(warmup_prompt_indices) == warmup_groups and warmup_groups > 0
+        else None
+    )
+    prompts_per_batch = int(config["rollout_batch_size"]) // int(
+        config["group_size"]
+    )
+    warmup_steps = warmup_groups // prompts_per_batch
+    warmup_evaluations = {
+        int(record["model_step"]): float(record["eval/accuracy"])
+        for record in evaluations
+        if int(record["eval/count"]) < full_count
+        and int(record["model_step"]) <= warmup_steps
+    }
 
     return {
         "run_dir": str(run_dir),
         "seed": int(config["seed"]),
         "sampling_strategy": config["sampling_strategy"],
+        "matched_random_warmup": bool(
+            config.get("matched_random_warmup", False)
+        ),
+        "warmup_groups": warmup_groups,
+        "warmup_prompt_count_recorded": len(warmup_prompt_indices),
+        "warmup_prompt_hash": warmup_prompt_hash,
+        "warmup_evaluations": warmup_evaluations,
         "total_rollout_tokens": total_tokens,
         "attempted_groups": attempted_groups,
         "effective_groups": effective_groups,
@@ -106,6 +138,18 @@ def main() -> None:
             * 100,
         },
         "screen": {
+            "matched_warmup_prompts": (
+                vanilla["warmup_prompt_count_recorded"]
+                == vanilla["warmup_groups"]
+                == difficulty["warmup_prompt_count_recorded"]
+                == difficulty["warmup_groups"]
+                and vanilla["warmup_prompt_hash"]
+                == difficulty["warmup_prompt_hash"]
+            ),
+            "matched_warmup_evaluations": (
+                vanilla["warmup_evaluations"]
+                == difficulty["warmup_evaluations"]
+            ),
             "both_full_evaluations": (
                 vanilla_eval["count"] == 1319
                 and difficulty_eval["count"] == 1319

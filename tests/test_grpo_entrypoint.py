@@ -103,6 +103,20 @@ def test_parser_accepts_prompt_importance_correction():
     assert args.importance_weight_clip_max == 4.0
 
 
+def test_parser_accepts_matched_random_warmup():
+    args = build_parser().parse_args(
+        [
+            "--output-path",
+            "unused",
+            "--sampling-strategy",
+            "random",
+            "--matched-random-warmup",
+        ]
+    )
+
+    assert args.matched_random_warmup is True
+
+
 def test_random_sampling_gets_one_unit_importance_weight_per_group():
     assert resolve_group_importance_weights(None, 8) == [1.0] * 8
 

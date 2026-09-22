@@ -11,12 +11,22 @@ SEED="${SEED:-42}"
 CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
 MAX_ROLLOUT_TOKENS="${MAX_ROLLOUT_TOKENS:-4000000}"
 SAVE_FINAL_CHECKPOINT="${SAVE_FINAL_CHECKPOINT:-true}"
+MATCHED_RANDOM_WARMUP="${MATCHED_RANDOM_WARMUP:-false}"
 
 case "${SAVE_FINAL_CHECKPOINT}" in
     true) FINAL_CHECKPOINT_FLAG="--save-final-checkpoint" ;;
     false) FINAL_CHECKPOINT_FLAG="--no-save-final-checkpoint" ;;
     *)
         echo "SAVE_FINAL_CHECKPOINT must be true or false" >&2
+        exit 2
+        ;;
+esac
+
+case "${MATCHED_RANDOM_WARMUP}" in
+    true) MATCHED_WARMUP_FLAG="--matched-random-warmup" ;;
+    false) MATCHED_WARMUP_FLAG="--no-matched-random-warmup" ;;
+    *)
+        echo "MATCHED_RANDOM_WARMUP must be true or false" >&2
         exit 2
         ;;
 esac
@@ -33,6 +43,10 @@ uv run --no-sync python scripts/train_grpo.py \
     --run-name "vanilla-random-${RUN_TAG}" \
     --seed "${SEED}" \
     --sampling-strategy random \
+    "${MATCHED_WARMUP_FLAG}" \
+    --difficulty-ema-beta 0.5 \
+    --sampling-uniform-epsilon 0.1 \
+    --difficulty-warmup-groups 128 \
     --reward-mode question_only \
     --format-reward-weight 0.1 \
     --answer-reward-weight 1.0 \

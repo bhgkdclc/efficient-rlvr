@@ -204,6 +204,35 @@ def test_difficulty_sampler_can_sample_uniformly_with_metadata():
     assert metadata["selected_seen_ratio"] in {0.0, 0.25, 0.5}
 
 
+def test_matched_random_control_reuses_exact_difficulty_warmup_draws():
+    difficulty = DifficultyAwareSampler(
+        num_prompts=20,
+        ema_beta=0.5,
+        uniform_epsilon=0.1,
+        warmup_groups=8,
+        seed=42,
+    )
+    control = DifficultyAwareSampler(
+        num_prompts=20,
+        ema_beta=0.5,
+        uniform_epsilon=0.1,
+        warmup_groups=8,
+        seed=42,
+    )
+
+    for step in range(2):
+        difficulty_selected, _ = difficulty.sample(4)
+        control_selected, _ = control.sample_matched_warmup_then_uniform(4)
+        assert control_selected == difficulty_selected
+        accuracies = [0.0, 0.25, 0.5, 1.0]
+        difficulty.update(difficulty_selected, accuracies, step=step)
+        control.update(control_selected, accuracies, step=step)
+
+    uniform_selected, metadata = control.sample_matched_warmup_then_uniform(4)
+    assert len(uniform_selected) == 4
+    assert metadata["warmup_active"] is False
+
+
 def test_hybrid_sampler_uses_explicit_uniform_and_difficulty_strata():
     sampler = DifficultyAwareSampler(
         num_prompts=20,

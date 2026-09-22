@@ -304,6 +304,28 @@ class DifficultyAwareSampler:
         selected = self.rng.sample(candidates, sample_count)
         return selected, self._selection_metadata(selected, observed_before)
 
+    def sample_matched_warmup_then_uniform(
+        self,
+        sample_count: int,
+        excluded: set[int] | None = None,
+    ) -> tuple[list[int], dict[str, float | int | bool | None]]:
+        """Match difficulty warmup draws, then continue uniformly.
+
+        This control path shares the exact unseen-prompt warmup algorithm and
+        RNG stream used by ``sample``.  Once warmup is complete, it switches to
+        uniform sampling without consulting difficulty scores.  Requiring the
+        batch not to straddle the boundary keeps the intervention point exact.
+        """
+        remaining_warmup = max(0, self.warmup_groups - self.observed_prompt_count)
+        if remaining_warmup:
+            if sample_count > remaining_warmup:
+                raise ValueError(
+                    "matched warmup batch straddles the warmup boundary; "
+                    "choose warmup_groups divisible by prompt groups per batch"
+                )
+            return self.sample(sample_count, excluded)
+        return self.sample_uniform(sample_count, excluded)
+
     def sample_hybrid(
         self,
         sample_count: int,

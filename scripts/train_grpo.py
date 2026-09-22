@@ -565,7 +565,10 @@ def train_grpo_experiment(
         )
 
     difficulty_sampler = None
-    if args.sampling_strategy in DIFFICULTY_SAMPLING_STRATEGIES:
+    if (
+        args.sampling_strategy in DIFFICULTY_SAMPLING_STRATEGIES
+        or args.matched_random_warmup
+    ):
         difficulty_sampler = DifficultyAwareSampler(
             num_prompts=len(train_data),
             ema_beta=args.difficulty_ema_beta,
@@ -774,6 +777,7 @@ def train_grpo_experiment(
         accepted_group_importance_weights: list[float] = []
         accepted_group_effective_flags: list[bool] = []
         importance_metadata: dict[str, Any] = {}
+        rollout_prompt_indices: list[int] = []
 
         if active_sampling_strategy == "dynamic":
             candidate_indices = list(range(len(train_data)))
@@ -785,6 +789,16 @@ def train_grpo_experiment(
                 if difficulty_sampler is None:
                     rollout_dataset = random.sample(train_data, groups_needed)
                     round_prompt_indices: list[int] = []
+                elif args.matched_random_warmup:
+                    (
+                        round_prompt_indices,
+                        round_difficulty_metadata,
+                    ) = difficulty_sampler.sample_matched_warmup_then_uniform(
+                        groups_needed
+                    )
+                    rollout_dataset = [
+                        train_data[index] for index in round_prompt_indices
+                    ]
                 else:
                     (
                         round_prompt_indices,
@@ -864,6 +878,7 @@ def train_grpo_experiment(
                 round_group_importance_weights,
                 len(rollout_dataset),
             )
+            rollout_prompt_indices.extend(round_prompt_indices)
 
             rollout_prompts = [item["prompt"] for item in rollout_dataset]
             rollout_answers = [item["answer"] for item in rollout_dataset]
@@ -1198,6 +1213,7 @@ def train_grpo_experiment(
                 "sampling/accepted_groups": accepted_groups,
                 "sampling/discarded_zero_variance_groups": discarded_groups,
                 "sampling/resample_rounds": resample_rounds,
+                "sampling/prompt_indices": rollout_prompt_indices,
                 "sampling/accepted_generated_response_tokens": int(
                     accepted_token_counts["generated_response_tokens"]
                 ),
@@ -1539,6 +1555,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--difficulty-warmup-groups", type=int, default=128)
     parser.add_argument("--difficulty-coverage-weight", type=float, default=0.0)
     parser.add_argument(
+        "--matched-random-warmup",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "For random sampling, use the difficulty sampler's exact unseen-"
+            "prompt warmup RNG stream before continuing uniformly"
+        ),
+    )
+    parser.add_argument(
         "--prompt-importance-correction",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -1650,6 +1675,17 @@ def main() -> None:
         raise ValueError(
             "prompt importance correction currently requires "
             "sampling_strategy=difficulty"
+        )
+    if args.matched_random_warmup and args.sampling_strategy != "random":
+        raise ValueError("matched random warmup requires sampling_strategy=random")
+    prompts_per_rollout_batch = args.rollout_batch_size // args.group_size
+    if (
+        args.matched_random_warmup
+        and args.difficulty_warmup_groups % prompts_per_rollout_batch != 0
+    ):
+        raise ValueError(
+            "matched random warmup requires difficulty_warmup_groups divisible "
+            "by prompt groups per rollout batch"
         )
     normalize_clipped_importance_weights(
         [1.0],
