@@ -13,6 +13,8 @@ from scripts.train_grpo import (
     rollout_token_counts,
     resolve_group_importance_weights,
     resolve_sampling_strategy,
+    reached_full_eval_rollout_token_milestones,
+    validate_full_eval_rollout_token_milestones,
 )
 
 
@@ -115,6 +117,47 @@ def test_parser_accepts_matched_random_warmup():
     )
 
     assert args.matched_random_warmup is True
+
+
+def test_parser_accepts_full_eval_rollout_token_milestones():
+    args = build_parser().parse_args(
+        [
+            "--output-path",
+            "unused",
+            "--full-eval-rollout-token-milestones",
+            "1000000",
+            "2000000",
+            "3000000",
+            "4000000",
+        ]
+    )
+
+    assert args.full_eval_rollout_token_milestones == [
+        1_000_000,
+        2_000_000,
+        3_000_000,
+        4_000_000,
+    ]
+
+
+def test_full_eval_rollout_token_milestones_trigger_once():
+    milestones = [1_000_000, 2_000_000, 3_000_000, 4_000_000]
+    completed = {1_000_000}
+
+    assert reached_full_eval_rollout_token_milestones(
+        milestones,
+        completed,
+        2_012_345,
+    ) == [2_000_000]
+
+
+@pytest.mark.parametrize(
+    "milestones",
+    [[0], [2_000_000, 1_000_000], [1_000_000, 1_000_000], [5_000_000]],
+)
+def test_invalid_full_eval_rollout_token_milestones_are_rejected(milestones):
+    with pytest.raises(ValueError, match="full-eval rollout-token milestones"):
+        validate_full_eval_rollout_token_milestones(milestones, 4_000_000)
 
 
 def test_random_sampling_gets_one_unit_importance_weight_per_group():

@@ -12,6 +12,15 @@ CHECKPOINT_STEPS="${CHECKPOINT_STEPS:-50}"
 MAX_ROLLOUT_TOKENS="${MAX_ROLLOUT_TOKENS:-4000000}"
 SAVE_FINAL_CHECKPOINT="${SAVE_FINAL_CHECKPOINT:-true}"
 MATCHED_RANDOM_WARMUP="${MATCHED_RANDOM_WARMUP:-false}"
+FULL_EVAL_ROLLOUT_TOKEN_MILESTONES="${FULL_EVAL_ROLLOUT_TOKEN_MILESTONES:-}"
+
+MILESTONE_EVAL_ARGS=()
+if [[ -n "${FULL_EVAL_ROLLOUT_TOKEN_MILESTONES}" ]]; then
+    read -r -a milestone_values <<< "${FULL_EVAL_ROLLOUT_TOKEN_MILESTONES}"
+    MILESTONE_EVAL_ARGS=(
+        --full-eval-rollout-token-milestones "${milestone_values[@]}"
+    )
+fi
 
 case "${SAVE_FINAL_CHECKPOINT}" in
     true) FINAL_CHECKPOINT_FLAG="--save-final-checkpoint" ;;
@@ -61,6 +70,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --sampling-temperature 1.0 \
     --sampling-max-tokens 512 \
     --max-rollout-tokens "${MAX_ROLLOUT_TOKENS}" \
+    "${MILESTONE_EVAL_ARGS[@]}" \
     --eval-steps 10 \
     --checkpoint-steps "${CHECKPOINT_STEPS}" \
     --eval-samples 256 \

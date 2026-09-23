@@ -115,6 +115,41 @@ def resolve_sampling_strategy(
     return configured_strategy
 
 
+def validate_full_eval_rollout_token_milestones(
+    milestones: list[int],
+    max_rollout_tokens: int,
+) -> None:
+    """Validate token-budget milestones used for full evaluations."""
+    if any(milestone <= 0 for milestone in milestones):
+        raise ValueError("full-eval rollout-token milestones must be positive")
+    if milestones != sorted(set(milestones)):
+        raise ValueError(
+            "full-eval rollout-token milestones must be unique and increasing"
+        )
+    if (
+        max_rollout_tokens > 0
+        and milestones
+        and milestones[-1] > max_rollout_tokens
+    ):
+        raise ValueError(
+            "full-eval rollout-token milestones cannot exceed max_rollout_tokens"
+        )
+
+
+def reached_full_eval_rollout_token_milestones(
+    milestones: list[int],
+    completed_milestones: set[int],
+    cumulative_rollout_tokens: int,
+) -> list[int]:
+    """Return newly crossed full-evaluation milestones in configured order."""
+    return [
+        milestone
+        for milestone in milestones
+        if milestone not in completed_milestones
+        and cumulative_rollout_tokens >= milestone
+    ]
+
+
 def extract_answer(completion: str) -> str | None:
     match = GSM_RE.search(completion)
     if match is None:
@@ -496,6 +531,7 @@ def run_evaluation(
     save: bool,
     evaluation_stage: str | None = None,
     cumulative_rollout_tokens: int | None = None,
+    requested_rollout_token_milestone: int | None = None,
 ) -> None:
     eval_data = select_eval_data(test_data, sample_count)
     load_policy_into_vllm_instance(model, vllm, vllm_device)
@@ -522,6 +558,10 @@ def run_evaluation(
         metrics["eval/stage"] = evaluation_stage
     if cumulative_rollout_tokens is not None:
         metrics["rollout/cumulative_rollout_tokens"] = cumulative_rollout_tokens
+    if requested_rollout_token_milestone is not None:
+        metrics["eval/requested_rollout_token_milestone"] = (
+            requested_rollout_token_milestone
+        )
     experiment_logger.log(metrics)
     logger.info("eval model_step=%d accuracy=%.4f", model_step, accuracy)
     if save:
@@ -640,6 +680,10 @@ def train_grpo_experiment(
     smooth_train_loss = 0.0
     training_start = time.time()
     last_evaluated_model_step = 0 if args.eval_before_training else -1
+    last_full_evaluated_model_step = (
+        0 if args.eval_before_training and args.eval_samples <= 0 else -1
+    )
+    completed_full_eval_milestones: set[int] = set()
     completed_grpo_steps = 0
     sampling_switch_completed = False
     previous_active_sampling_strategy: str | None = None
@@ -754,6 +798,8 @@ def train_grpo_experiment(
                     evaluation_stage="sampling_switch",
                     cumulative_rollout_tokens=cumulative_rollout_tokens,
                 )
+                if args.final_eval_samples <= 0:
+                    last_full_evaluated_model_step = completed_grpo_steps
             sampling_switch_completed = True
 
         load_policy_into_vllm_instance(model, vllm, args.vllm_device)
@@ -1454,7 +1500,15 @@ def train_grpo_experiment(
                 step_start = time.time()
 
         completed_grpo_steps = grpo_step + 1
-        if completed_grpo_steps % args.eval_steps == 0:
+        reached_eval_milestones = reached_full_eval_rollout_token_milestones(
+            args.full_eval_rollout_token_milestones,
+            completed_full_eval_milestones,
+            cumulative_rollout_tokens,
+        )
+        if (
+            completed_grpo_steps % args.eval_steps == 0
+            and not reached_eval_milestones
+        ):
             run_evaluation(
                 model=model,
                 tokenizer=tokenizer,
@@ -1471,13 +1525,54 @@ def train_grpo_experiment(
                     args.checkpoint_steps > 0
                     and completed_grpo_steps % args.checkpoint_steps == 0
                 ),
+                cumulative_rollout_tokens=cumulative_rollout_tokens,
             )
             last_evaluated_model_step = completed_grpo_steps
+            if args.eval_samples <= 0:
+                last_full_evaluated_model_step = completed_grpo_steps
 
-    if (
-        completed_grpo_steps != last_evaluated_model_step
-        or args.final_eval_samples != args.eval_samples
-    ):
+        for milestone in reached_eval_milestones:
+            logger.info(
+                "running full evaluation at rollout-token milestone "
+                "requested=%d actual=%d model_step=%d",
+                milestone,
+                cumulative_rollout_tokens,
+                completed_grpo_steps,
+            )
+            run_evaluation(
+                model=model,
+                tokenizer=tokenizer,
+                vllm=vllm,
+                vllm_device=args.vllm_device,
+                reward_fn=reward_fn,
+                test_data=test_data,
+                sample_count=0,
+                eval_sampling_params=eval_sampling_params,
+                experiment_logger=experiment_logger,
+                model_step=completed_grpo_steps,
+                output_path=Path(args.output_path),
+                save=(
+                    args.save_final_checkpoint
+                    and args.max_rollout_tokens > 0
+                    and milestone == args.max_rollout_tokens
+                ),
+                evaluation_stage="rollout_token_milestone",
+                cumulative_rollout_tokens=cumulative_rollout_tokens,
+                requested_rollout_token_milestone=milestone,
+            )
+            completed_full_eval_milestones.add(milestone)
+            last_evaluated_model_step = completed_grpo_steps
+            last_full_evaluated_model_step = completed_grpo_steps
+
+    final_evaluation_already_done = (
+        args.final_eval_samples <= 0
+        and last_full_evaluated_model_step == completed_grpo_steps
+    ) or (
+        args.final_eval_samples > 0
+        and completed_grpo_steps == last_evaluated_model_step
+        and args.final_eval_samples == args.eval_samples
+    )
+    if not final_evaluation_already_done:
         run_evaluation(
             model=model,
             tokenizer=tokenizer,
@@ -1491,6 +1586,8 @@ def train_grpo_experiment(
             model_step=completed_grpo_steps,
             output_path=Path(args.output_path),
             save=args.save_final_checkpoint,
+            evaluation_stage="final",
+            cumulative_rollout_tokens=cumulative_rollout_tokens,
         )
 
     logger.info(
@@ -1615,6 +1712,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sampling-min-tokens", type=int, default=4)
     parser.add_argument("--sampling-max-tokens", type=int, default=1024)
     parser.add_argument("--max-rollout-tokens", type=int, default=0)
+    parser.add_argument(
+        "--full-eval-rollout-token-milestones",
+        nargs="+",
+        type=int,
+        default=[],
+        help=(
+            "Run a full evaluation after the first completed optimizer update "
+            "whose cumulative rollout-token count reaches each milestone"
+        ),
+    )
 
     parser.add_argument(
         "--loss-type",
@@ -1670,6 +1777,10 @@ def main() -> None:
         args.difficulty_switch_rollout_tokens,
         args.difficulty_refresh_cycle_tokens,
         args.difficulty_refresh_random_tokens,
+    )
+    validate_full_eval_rollout_token_milestones(
+        args.full_eval_rollout_token_milestones,
+        args.max_rollout_tokens,
     )
     if args.prompt_importance_correction and args.sampling_strategy != "difficulty":
         raise ValueError(

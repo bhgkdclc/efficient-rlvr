@@ -28,6 +28,15 @@ TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-64}"
 GRADIENT_ACCUMULATION_STEPS="${GRADIENT_ACCUMULATION_STEPS:-64}"
 OUTPUT_PATH="${OUTPUT_PATH:-${REPO_ROOT}/experiments/${EXPERIMENT_NAME}_${RUN_TAG}}"
 WANDB_MODE="${WANDB_MODE:-offline}"
+FULL_EVAL_ROLLOUT_TOKEN_MILESTONES="${FULL_EVAL_ROLLOUT_TOKEN_MILESTONES:-}"
+
+MILESTONE_EVAL_ARGS=()
+if [[ -n "${FULL_EVAL_ROLLOUT_TOKEN_MILESTONES}" ]]; then
+    read -r -a milestone_values <<< "${FULL_EVAL_ROLLOUT_TOKEN_MILESTONES}"
+    MILESTONE_EVAL_ARGS=(
+        --full-eval-rollout-token-milestones "${milestone_values[@]}"
+    )
+fi
 
 case "${SAVE_FINAL_CHECKPOINT}" in
     true) FINAL_CHECKPOINT_FLAG="--save-final-checkpoint" ;;
@@ -83,6 +92,7 @@ uv run --no-sync python scripts/train_grpo.py \
     --sampling-temperature 1.0 \
     --sampling-max-tokens 512 \
     --max-rollout-tokens "${MAX_ROLLOUT_TOKENS}" \
+    "${MILESTONE_EVAL_ARGS[@]}" \
     --eval-steps 10 \
     --checkpoint-steps "${CHECKPOINT_STEPS}" \
     --eval-samples 256 \
